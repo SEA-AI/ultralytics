@@ -61,14 +61,14 @@ class DetectionTrainer(BaseTrainer):
         # self.args.box *= 3 / nl  # scale to layers
         # self.args.cls *= self.data["nc"] / 80 * 3 / nl  # scale to classes and layers
         # self.args.cls *= (self.args.imgsz / 640) ** 2 * 3 / nl  # scale to image size and layers
-        self.model.nc = self.data['nc']  # attach number of classes to model
-        self.model.names = self.data['names']  # attach class names to model
+        self.model.nc = 1 if self.args.single_cls else self.data['nc']  # attach number of classes to model
+        self.model.names = {0: 'item'} if self.args.single_cls and len(self.data['names']) != 1 else self.data['names']  # attach class names to model
         self.model.args = self.args  # attach hyperparameters to model
         # TODO: self.model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         """Return a YOLO detection model."""
-        model = DetectionModel(cfg, nc=self.data['nc'], verbose=verbose and RANK == -1)
+        model = DetectionModel(cfg, nc=1 if self.args.single_cls else self.data['nc'], verbose=verbose and RANK == -1)
         if weights:
             model.load(weights)
         return model
@@ -114,4 +114,4 @@ class DetectionTrainer(BaseTrainer):
         """Create a labeled training plot of the YOLO model."""
         boxes = np.concatenate([lb['bboxes'] for lb in self.train_loader.dataset.labels], 0)
         cls = np.concatenate([lb['cls'] for lb in self.train_loader.dataset.labels], 0)
-        plot_labels(boxes, cls.squeeze(), names=self.data['names'], save_dir=self.save_dir, on_plot=self.on_plot)
+        plot_labels(boxes, cls.squeeze(), names=self.model.names, save_dir=self.save_dir, on_plot=self.on_plot)

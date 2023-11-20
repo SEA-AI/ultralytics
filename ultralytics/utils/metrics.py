@@ -707,7 +707,7 @@ class DetMetrics(SimpleClass):
         curves_results: TODO
     """
 
-    def __init__(self, save_dir=Path('.'), plot=False, on_plot=None, names=()) -> None:
+    def __init__(self, save_dir=Path('.'), plot=False, on_plot=None, names=(), args=None) -> None:
         """Initialize a DetMetrics instance with a save directory, plot flag, callback function, and class names."""
         self.save_dir = save_dir
         self.plot = plot
@@ -716,6 +716,7 @@ class DetMetrics(SimpleClass):
         self.box = Metric()
         self.speed = {'preprocess': 0.0, 'inference': 0.0, 'loss': 0.0, 'postprocess': 0.0}
         self.task = 'detect'
+        self.args = args
 
     def process(self, tp, conf, pred_cls, target_cls):
         """Process predicted results for object detection and update metrics."""
@@ -733,7 +734,9 @@ class DetMetrics(SimpleClass):
     @property
     def keys(self):
         """Returns a list of keys for accessing specific metrics."""
-        return ['metrics/precision(B)', 'metrics/recall(B)', 'metrics/mAP50(B)', 'metrics/mAP50-95(B)']
+        mAP_lb = 0.5 if not hasattr(self.args, 'mAP_lb') else self.args.mAP_lb
+        mAP_ub = 0.95 if not hasattr(self.args, 'mAP_ub') else self.args.mAP_ub
+        return ['metrics/precision(B)', 'metrics/recall(B)', f'metrics/mAP{mAP_lb}(B)', f'metrics/mAP{mAP_lb}-{mAP_ub}(B)']
 
     def mean_results(self):
         """Calculate mean of detected objects & return precision, recall, mAP50, and mAP50-95."""

@@ -50,6 +50,8 @@ max_det: 300  # (int) maximum number of detections per image
 half: False  # (bool) use half precision (FP16)
 dnn: False  # (bool) use OpenCV DNN for ONNX inference
 plots: True  # (bool) save plots during train/val
+mAP_lb: # (float) mAP lower bound for evaluation (default 0.5)
+mAP_ub: # (float) mAP upper bound for evaluation (default 0.95)
 
 # Prediction settings --------------------------------------------------------------------------------------------------
 source:  # (str, optional) source directory for images or videos

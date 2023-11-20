@@ -35,8 +35,10 @@ class DetectionValidator(BaseValidator):
         self.is_coco = False
         self.class_map = None
         self.args.task = 'detect'
-        self.metrics = DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot)
-        self.iouv = torch.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
+        self.metrics = DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot, args=self.args)
+        mAP_lb = 0.5 if not hasattr(self.args, 'mAP_lb') else self.args.mAP_lb
+        mAP_ub = 0.95 if not hasattr(self.args, 'mAP_ub') else self.args.mAP_ub
+        self.iouv = torch.linspace(mAP_lb, mAP_ub, 10)  # iou vector for mAP@mAP_lb:mAP_ub
         self.niou = self.iouv.numel()
         self.lb = []  # for autolabelling
 
@@ -74,7 +76,9 @@ class DetectionValidator(BaseValidator):
 
     def get_desc(self):
         """Return a formatted string summarizing class metrics of YOLO model."""
-        return ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'Box(P', 'R', 'mAP50', 'mAP50-95)')
+        mAP_lb = '50' if not hasattr(self.args, 'mAP_lb') else '{:02d}'.format(int(self.args.mAP_lb * 100))
+        mAP_ub = '95' if not hasattr(self.args, 'mAP_ub') else '{:02d}'.format(int(self.args.mAP_ub * 100))
+        return ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'Box(P', 'R', f'mAP{mAP_lb}', f'mAP{mAP_lb}-{mAP_ub})')
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""

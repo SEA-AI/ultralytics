@@ -297,9 +297,9 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(''), on_plot=None):
 
     # Rectangles
     boxes[:, 0:2] = 0.5  # center
-    boxes = ops.xywh2xyxy(boxes) * 1000
-    img = Image.fromarray(np.ones((1000, 1000, 3), dtype=np.uint8) * 255)
-    for cls, box in zip(cls[:500], boxes[:500]):
+    boxes = ops.xywh2xyxy(boxes) * 2000
+    img = Image.fromarray(np.ones((2000, 2000, 3), dtype=np.uint8) * 255)
+    for cls, box in zip(cls[:1000], boxes[:1000]):
         ImageDraw.Draw(img).rectangle(box, width=1, outline=colors(cls))  # plot
     ax[1].imshow(img)
     ax[1].axis('off')

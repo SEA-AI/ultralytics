@@ -10,3 +10,5 @@ from ultralytics.utils.checks import check_yolo as checks
 from ultralytics.utils.downloads import download
 
 __all__ = '__version__', 'YOLO', 'NAS', 'SAM', 'FastSAM', 'RTDETR', 'checks', 'download', 'settings'
+
+print("🚀 SEA.AI custom version")
