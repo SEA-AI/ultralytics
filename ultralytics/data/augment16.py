@@ -35,6 +35,7 @@ def get_16_to_8_transform(augment):
                 NormalizeMinMax(p=1.0),
                 A.UnsharpMask(p=0.5, threshold=5),
                 A.ToRGB(p=1.0),
+                A.ImageCompression(p=0.9, quality_lower=50),
             ]
         )
     else:
