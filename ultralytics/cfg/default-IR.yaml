@@ -10,6 +10,9 @@ pretrained: True # (bool | str) whether to use a pretrained model (bool) or a mo
 single_cls: False # (bool) train multi-class data as single-class
 close_mosaic: 10 # (int) disable mosaic augmentation for final epochs (0 to disable)
 
+# Val/Test settings ----------------------------------------------------------------------------------------------------
+mAP_lb: 0.05 # (float) mAP lower bound for evaluation (default 0.5)
+mAP_ub: 0.95 # (float) mAP upper bound for evaluation (default 0.95)
 
 # Hyperparameters ------------------------------------------------------------------------------------------------------
 lr0: 0.001 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)
