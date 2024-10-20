@@ -89,8 +89,8 @@ class DetectionValidator(BaseValidator):
 
     def get_desc(self):
         """Return a formatted string summarizing class metrics of YOLO model."""
-        mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else "{:02d}".format(int(self.args.mAP_lb * 100))
-        mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else "{:02d}".format(int(self.args.mAP_ub * 100))
+        mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
+        mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
         return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", f"mAP{mAP_lb}", f"mAP{mAP_lb}-{mAP_ub})")
 
     def postprocess(self, preds):
