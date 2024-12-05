@@ -8,6 +8,7 @@ device: 0 # (int | str | list, optional) device to run on, i.e. cuda device=0 or
 workers: 8 # (int) number of worker threads for data loading (per RANK if DDP)
 pretrained: True # (bool | str) whether to use a pretrained model (bool) or a model to load weights from (str)
 single_cls: False # (bool) train multi-class data as single-class
+single_cls_val: True # (bool) validate multi-class data as single-class regardless of train mode
 close_mosaic: 10 # (int) disable mosaic augmentation for final epochs (0 to disable)
 
 # Predict settings -----------------------------------------------------------------------------------------------------
