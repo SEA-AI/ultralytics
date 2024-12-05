@@ -37,6 +37,7 @@ class DetectionValidator(BaseValidator):
         self.is_lvis = False
         self.class_map = None
         self.args.task = "detect"
+        self.args.single_cls = self.args.single_cls_val
         self.metrics = DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot, args=self.args)
         mAP_lb = 0.5 if not hasattr(self.args, 'mAP_lb') else self.args.mAP_lb
         mAP_ub = 0.95 if not hasattr(self.args, 'mAP_ub') else self.args.mAP_ub
