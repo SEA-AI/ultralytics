@@ -2,7 +2,7 @@
 
 import math
 import random
-from copy import copy
+from copy import copy, deepcopy
 
 import numpy as np
 import torch.nn as nn
@@ -40,8 +40,13 @@ class DetectionTrainer(BaseTrainer):
             batch (int, optional): Size of batches, this is for `rect`. Defaults to None.
         """
         gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
-        return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
-
+        if mode == "val":
+            val_args = deepcopy(self.args)
+            val_args.single_cls = val_args.single_cls_val
+            return build_yolo_dataset(val_args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+        else:
+            return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
+        
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
         """Construct and return dataloader."""
         assert mode in {"train", "val"}, f"Mode must be 'train' or 'val', not {mode}."
@@ -93,8 +98,10 @@ class DetectionTrainer(BaseTrainer):
     def get_validator(self):
         """Returns a DetectionValidator for YOLO model validation."""
         self.loss_names = "box_loss", "cls_loss", "dfl_loss"
+        val_args = deepcopy(self.args)
+        val_args.single_cls = val_args.single_cls_val        
         return yolo.detect.DetectionValidator(
-            self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
+            self.test_loader, save_dir=self.save_dir, args=val_args, _callbacks=self.callbacks
         )
 
     def label_loss_items(self, loss_items=None, prefix="train"):
