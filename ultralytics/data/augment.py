@@ -22,7 +22,6 @@ DEFAULT_MEAN = (0.0, 0.0, 0.0)
 DEFAULT_STD = (1.0, 1.0, 1.0)
 DEFAULT_CROP_FRACTION = 1.0
 
-BKG_COLOR = 0 # 114 (R, G, B) = (BKG_COLOR, BKG_COLOR, BKG_COLOR)
 
 class BaseTransform:
     """
@@ -518,7 +517,7 @@ class Mosaic(BaseMixTransform):
         >>> augmented_labels = mosaic_aug(original_labels)
     """
 
-    def __init__(self, dataset, imgsz=640, p=1.0, n=4):
+    def __init__(self, dataset, imgsz=640, p=1.0, n=4, fill_value: int = 114):
         """
         Initializes the Mosaic augmentation object.
 
@@ -542,6 +541,7 @@ class Mosaic(BaseMixTransform):
         self.imgsz = imgsz
         self.border = (-imgsz // 2, -imgsz // 2)  # width, height
         self.n = n
+        self.fill_value = fill_value
 
     def get_indexes(self, buffer=True):
         """
@@ -691,7 +691,7 @@ class Mosaic(BaseMixTransform):
 
             # Place img in img4
             if i == 0:  # top left
-                img4 = np.full((s * 2, s * 2, img.shape[2]), BKG_COLOR, dtype=np.uint8)  # base image with 4 tiles
+                img4 = np.full((s * 2, s * 2, img.shape[2]), self.fill_value, dtype=np.uint8)  # base image with 4 tiles
                 x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
                 x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
             elif i == 1:  # top right
@@ -751,7 +751,7 @@ class Mosaic(BaseMixTransform):
 
             # Place img in img9
             if i == 0:  # center
-                img9 = np.full((s * 3, s * 3, img.shape[2]), BKG_COLOR, dtype=np.uint8)  # base image with 4 tiles
+                img9 = np.full((s * 3, s * 3, img.shape[2]), self.fill_value, dtype=np.uint8)  # base image with 4 tiles
                 h0, w0 = h, w
                 c = s, s, s + w, s + h  # xmin, ymin, xmax, ymax (base) coordinates
             elif i == 1:  # top
@@ -985,7 +985,15 @@ class RandomPerspective:
     """
 
     def __init__(
-        self, degrees=0.0, translate=0.1, scale=0.5, shear=0.0, perspective=0.0, border=(0, 0), pre_transform=None
+        self,
+        degrees=0.0,
+        translate=0.1,
+        scale=0.5,
+        shear=0.0,
+        perspective=0.0,
+        border=(0, 0),
+        pre_transform=None,
+        fill_value: int = 114,
     ):
         """
         Initializes RandomPerspective object with transformation parameters.
@@ -1002,6 +1010,7 @@ class RandomPerspective:
             border (Tuple[int, int]): Tuple specifying mosaic border (top/bottom, left/right).
             pre_transform (Callable | None): Function/transform to apply to the image before starting the random
                 transformation.
+            fill_value (int): Value to use for filling the border. Default is 114.
 
         Examples:
             >>> transform = RandomPerspective(degrees=10.0, translate=0.1, scale=0.5, shear=5.0)
@@ -1014,6 +1023,7 @@ class RandomPerspective:
         self.perspective = perspective
         self.border = border  # mosaic border
         self.pre_transform = pre_transform
+        self.fill_value = fill_value
 
     def affine_transform(self, img, border):
         """
@@ -1072,10 +1082,11 @@ class RandomPerspective:
         M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
         # Affine image
         if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
+            fill_value = (self.fill_value,) * 3 if isinstance(self.fill_value, int) else self.fill_value
             if self.perspective:
-                img = cv2.warpPerspective(img, M, dsize=self.size, borderValue=(BKG_COLOR,) * 3)
+                img = cv2.warpPerspective(img, M, dsize=self.size, borderValue=fill_value)
             else:  # affine
-                img = cv2.warpAffine(img, M[:2], dsize=self.size, borderValue=(BKG_COLOR,) * 3)
+                img = cv2.warpAffine(img, M[:2], dsize=self.size, borderValue=fill_value)
         return img, M, s
 
     def apply_bboxes(self, bboxes, M):
@@ -1500,7 +1511,16 @@ class LetterBox:
         >>> updated_instances = result["instances"]
     """
 
-    def __init__(self, new_shape=(640, 640), auto=False, scaleFill=False, scaleup=True, center=True, stride=32):
+    def __init__(
+        self,
+        new_shape=(640, 640),
+        auto=False,
+        scaleFill=False,
+        scaleup=True,
+        center=True,
+        stride=32,
+        fill_value: int = 114,
+    ):
         """
         Initialize LetterBox object for resizing and padding images.
 
@@ -1514,6 +1534,7 @@ class LetterBox:
             scaleup (bool): If True, allow scaling up. If False, only scale down.
             center (bool): If True, center the placed image. If False, place image in top-left corner.
             stride (int): Stride of the model (e.g., 32 for YOLOv5).
+            fill_value (int): Value to use for filling the border. Default is 114.
 
         Attributes:
             new_shape (Tuple[int, int]): Target size for the resized image.
@@ -1532,6 +1553,7 @@ class LetterBox:
         self.scaleup = scaleup
         self.stride = stride
         self.center = center  # Put the image in the middle or top-left
+        self.fill_value = fill_value
 
     def __call__(self, labels=None, image=None):
         """
@@ -1587,9 +1609,8 @@ class LetterBox:
             img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
         top, bottom = int(round(dh - 0.1)) if self.center else 0, int(round(dh + 0.1))
         left, right = int(round(dw - 0.1)) if self.center else 0, int(round(dw + 0.1))
-        img = cv2.copyMakeBorder(
-            img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(BKG_COLOR, ) * 3
-        )  # add border
+        fill_value = (self.fill_value,) * 3 if isinstance(self.fill_value, int) else self.fill_value
+        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=fill_value)  # add border
         if labels.get("ratio_pad"):
             labels["ratio_pad"] = (labels["ratio_pad"], (left, top))  # for evaluation
 
@@ -2529,7 +2550,7 @@ class ClassifyLetterBox:
         (640, 640, 3)
     """
 
-    def __init__(self, size=(640, 640), auto=False, stride=32):
+    def __init__(self, size=(640, 640), auto=False, stride=32, fill_value: int = 114):
         """
         Initializes the ClassifyLetterBox object for image preprocessing.
 
@@ -2541,6 +2562,7 @@ class ClassifyLetterBox:
                 (size, size) is created. If a tuple, it should be (height, width).
             auto (bool): If True, automatically calculates the short side based on stride. Default is False.
             stride (int): The stride value, used when 'auto' is True. Default is 32.
+            fill_value (int): Value to use for filling the border. Default is 114.
 
         Attributes:
             h (int): Target height of the letterboxed image.
@@ -2559,6 +2581,7 @@ class ClassifyLetterBox:
         self.h, self.w = (size, size) if isinstance(size, int) else size
         self.auto = auto  # pass max size integer, automatically solve for short side using stride
         self.stride = stride  # used with auto
+        self.fill_value = fill_value
 
     def __call__(self, im):
         """
@@ -2590,7 +2613,7 @@ class ClassifyLetterBox:
         top, left = round((hs - h) / 2 - 0.1), round((ws - w) / 2 - 0.1)
 
         # Create padded image
-        im_out = np.full((hs, ws, 3), BKG_COLOR, dtype=im.dtype)
+        im_out = np.full((hs, ws, 3), self.fill_value, dtype=im.dtype)
         im_out[top : top + h, left : left + w] = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
         return im_out
 

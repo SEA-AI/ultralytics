@@ -178,7 +178,8 @@ class YOLODataset(BaseDataset):
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
-            transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
+            kwargs = {"fill_value": hyp.fill_value} if hasattr(hyp, "fill_value") else {}
+            transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False, **kwargs)])
         transforms.append(
             Format(
                 bbox_format="xywh",
