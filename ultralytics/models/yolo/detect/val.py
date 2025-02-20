@@ -1,4 +1,4 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 import os
 from pathlib import Path
@@ -80,6 +80,7 @@ class DetectionValidator(BaseValidator):
         self.args.save_json |= self.args.val and (self.is_coco or self.is_lvis) and not self.training  # run final val
         self.names = {0: "item"} if self.args.single_cls else model.names
         self.nc = 1 if self.args.single_cls else len(model.names)
+        self.end2end = getattr(model, "end2end", False)
         self.metrics.names = self.names
         self.metrics.plot = self.args.plots
         self.confusion_matrix = ConfusionMatrix(nc=self.nc, conf=self.args.conf)
@@ -100,9 +101,12 @@ class DetectionValidator(BaseValidator):
             self.args.conf,
             self.args.iou,
             labels=self.lb,
+            nc=self.nc,
             multi_label=True,
             agnostic=self.args.single_cls or self.args.agnostic_nms,
             max_det=self.args.max_det,
+            end2end=self.end2end,
+            rotated=self.args.task == "obb",
         )
 
     def _prepare_batch(self, si, batch):
@@ -172,7 +176,7 @@ class DetectionValidator(BaseValidator):
                     predn,
                     self.args.save_conf,
                     pbatch["ori_shape"],
-                    self.save_dir / "labels" / f'{Path(batch["im_file"][si]).stem}.txt',
+                    self.save_dir / "labels" / f"{Path(batch['im_file'][si]).stem}.txt",
                 )
 
     def finalize_metrics(self, *args, **kwargs):
