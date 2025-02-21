@@ -2321,14 +2321,14 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         >>> transforms = v8_transforms(dataset, imgsz=640, hyp=hyp)
         >>> augmented_data = transforms(dataset[0])
     """
-    mosaic = Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic)
+    mosaic = Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic, fill_value=hyp.fill_value)
     affine = RandomPerspective(
         degrees=hyp.degrees,
         translate=hyp.translate,
         scale=hyp.scale,
         shear=hyp.shear,
         perspective=hyp.perspective,
-        pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
+        pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz), fill_value=hyp.fill_value),
     )
 
     pre_transform = Compose([mosaic, affine])
@@ -2338,7 +2338,7 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
         pre_transform.append(
             CopyPaste(
                 dataset,
-                pre_transform=Compose([Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic), affine]),
+                pre_transform=Compose([Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic, fill_value=hyp.fill_value), affine]),
                 p=hyp.copy_paste,
                 mode=hyp.copy_paste_mode,
             )
