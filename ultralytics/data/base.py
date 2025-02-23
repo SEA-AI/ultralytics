@@ -148,7 +148,7 @@ class BaseDataset(Dataset):
             if self.single_cls:
                 self.labels[i]["cls"][:, 0] = 0
 
-    def imread_16bit_compatible(f: str, augment16: bool = False) -> np.ndarray:
+    def imread_16bit_compatible(self,f: str, augment16: bool = False) -> np.ndarray:
         """
         Loads an image and returns it in BGR format, it
         converts 16-bit images to 8-bit with optional augmentation.
