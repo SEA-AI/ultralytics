@@ -166,7 +166,7 @@ class BaseDataset(Dataset):
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR) # BGR    
         if im.dtype == np.uint16:
             try:
-                from utils.albumentations16 import convert_16bit_to_8bit
+                from .augment16 import convert_16bit_to_8bit
     
                 im = convert_16bit_to_8bit(im, augment=augment16)  # GRAY as BGR
             except Exception as e:
