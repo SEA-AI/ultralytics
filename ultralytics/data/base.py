@@ -148,26 +148,15 @@ class BaseDataset(Dataset):
             if self.single_cls:
                 self.labels[i]["cls"][:, 0] = 0
 
-    def imread_16bit_compatible(self,f: str) -> np.ndarray:
-        """
-        Loads an image and returns it in BGR format, it
-        converts 16-bit images to 8-bit with optional augmentation.
-    
-        Args:
-            f (str): Image file path.
-            augment16 (bool): Apply augmentation during conversion from 16-bit to 8bit.
-    
-        Returns:
-            np.ndarray: Image in BGR format.
-        """
-        # Read image with OpenCV, convert from 16-bit to 8-bit if necessary
+    def imread_16bit_compatible(self, f: str) -> np.ndarray:
+        """Read image with OpenCV, convert from 16-bit to 8-bit if necessary"""
         im = cv2.imread(f, cv2.IMREAD_UNCHANGED)  # load image as BGR if 3-ch image
         if im.dtype == np.uint8 and (im.ndim == 2 or im.shape[-1] == 1):
-            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR) # BGR    
+            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)  # BGR
         if im.dtype == np.uint16:
             try:
                 from .augment16 import convert_16bit_to_8bit
-    
+
                 im = convert_16bit_to_8bit(im, augment=self.augment)  # GRAY as BGR
             except Exception as e:
                 print(f"WARNING: Failed to convert image {f} from 16-bit to 8-bit")
