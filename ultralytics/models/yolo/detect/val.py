@@ -38,8 +38,8 @@ class DetectionValidator(BaseValidator):
         self.class_map = None
         self.args.task = "detect"
         self.metrics = DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot, args=self.args)
-        mAP_lb = 0.5 if not hasattr(self.args, 'mAP_lb') else self.args.mAP_lb
-        mAP_ub = 0.95 if not hasattr(self.args, 'mAP_ub') else self.args.mAP_ub
+        mAP_lb = self.args.mAP_lb
+        mAP_ub = self.args.mAP_ub
         self.iouv = torch.linspace(mAP_lb, mAP_ub, 10)  # iou vector for mAP@mAP_lb:mAP_ub
         self.niou = self.iouv.numel()
         self.lb = []  # for autolabelling
@@ -78,8 +78,8 @@ class DetectionValidator(BaseValidator):
         self.is_lvis = isinstance(val, str) and "lvis" in val and not self.is_coco  # is LVIS
         self.class_map = converter.coco80_to_coco91_class() if self.is_coco else list(range(1, len(model.names) + 1))
         self.args.save_json |= self.args.val and (self.is_coco or self.is_lvis) and not self.training  # run final val
-        self.names = {0: "item"} if self.args.single_cls else model.names
-        self.nc = 1 if self.args.single_cls else len(model.names)
+        self.names = model.names
+        self.nc = len(self.names)
         self.end2end = getattr(model, "end2end", False)
         self.metrics.names = self.names
         self.metrics.plot = self.args.plots
@@ -90,8 +90,8 @@ class DetectionValidator(BaseValidator):
 
     def get_desc(self):
         """Return a formatted string summarizing class metrics of YOLO model."""
-        mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
-        mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
+        mAP_lb = f"{int(self.args.mAP_lb * 100):02d}"
+        mAP_ub = f"{int(self.args.mAP_ub * 100):02d}"
         return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", f"mAP{mAP_lb}", f"mAP{mAP_lb}-{mAP_ub})")
 
     def postprocess(self, preds):
@@ -103,7 +103,7 @@ class DetectionValidator(BaseValidator):
             labels=self.lb,
             nc=self.nc,
             multi_label=True,
-            agnostic=self.args.single_cls or self.args.agnostic_nms,
+            agnostic=self.args.single_cls or self.args.single_cls_val or self.args.agnostic_nms,
             max_det=self.args.max_det,
             end2end=self.end2end,
             rotated=self.args.task == "obb",
@@ -154,7 +154,7 @@ class DetectionValidator(BaseValidator):
                 continue
 
             # Predictions
-            if self.args.single_cls:
+            if self.args.single_cls or self.args.single_cls_val:
                 pred[:, 5] = 0
             predn = self._prepare_pred(pred, pbatch)
             stat["conf"] = predn[:, 4]
