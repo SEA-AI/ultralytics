@@ -148,7 +148,7 @@ class BaseDataset(Dataset):
             if self.single_cls:
                 self.labels[i]["cls"][:, 0] = 0
 
-    def imread_16bit_compatible(self,f: str, augment16: bool = False) -> np.ndarray:
+    def imread_16bit_compatible(self,f: str) -> np.ndarray:
         """
         Loads an image and returns it in BGR format, it
         converts 16-bit images to 8-bit with optional augmentation.
@@ -168,7 +168,7 @@ class BaseDataset(Dataset):
             try:
                 from .augment16 import convert_16bit_to_8bit
     
-                im = convert_16bit_to_8bit(im, augment=augment16)  # GRAY as BGR
+                im = convert_16bit_to_8bit(im, augment=self.augment)  # GRAY as BGR
             except Exception as e:
                 print(f"WARNING: Failed to convert image {f} from 16-bit to 8-bit")
                 raise e
