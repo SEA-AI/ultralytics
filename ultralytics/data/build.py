@@ -104,7 +104,7 @@ def build_yolo_dataset(cfg, img_path, batch, data, mode="train", rect=False, str
         hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
         rect=cfg.rect or rect,  # rectangular batches
         cache=cfg.cache or None,
-        single_cls=cfg.single_cls or False,
+        single_cls=cfg.single_cls or (cfg.single_cls_val if mode == "val" else False),
         stride=int(stride),
         pad=0.0 if mode == "train" else 0.5,
         prefix=colorstr(f"{mode}: "),
