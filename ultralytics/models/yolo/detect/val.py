@@ -92,7 +92,15 @@ class DetectionValidator(BaseValidator):
         """Return a formatted string summarizing class metrics of YOLO model."""
         mAP_lb = f"{int(self.args.mAP_lb * 100):02d}"
         mAP_ub = f"{int(self.args.mAP_ub * 100):02d}"
-        return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", f"mAP{mAP_lb}", f"mAP{mAP_lb}-{mAP_ub})")
+        return ("%22s" + "%11s" * 6) % (
+            "Class",
+            "Images",
+            "Instances",
+            "Box(P",
+            "R",
+            f"mAP{mAP_lb}",
+            f"mAP{mAP_lb}-{mAP_ub})",
+        )
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""

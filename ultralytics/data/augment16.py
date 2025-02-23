@@ -1,18 +1,17 @@
 import random
-from typing import Sequence, Union, Tuple, cast
+from typing import Sequence, Tuple, Union, cast
 
 import albumentations as A
 import cv2
 import numpy as np
-from albumentations.core.transforms_interface import (
-    ImageOnlyTransform,
-    BaseTransformInitSchema,
-)
-
 from albumentations.core.pydantic import (
     NonNegativeFloatRangeType,
     OnePlusFloatRangeType,
     ZeroOneRangeType,
+)
+from albumentations.core.transforms_interface import (
+    BaseTransformInitSchema,
+    ImageOnlyTransform,
 )
 
 

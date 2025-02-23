@@ -2,7 +2,6 @@
 
 import math
 import random
-from copy import copy, deepcopy
 
 import numpy as np
 import torch.nn as nn
@@ -41,7 +40,7 @@ class DetectionTrainer(BaseTrainer):
         """
         gs = max(int(de_parallel(self.model).stride.max() if self.model else 0), 32)
         return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, rect=mode == "val", stride=gs)
-        
+
     def get_dataloader(self, dataset_path, batch_size=16, rank=0, mode="train"):
         """Construct and return dataloader."""
         assert mode in {"train", "val"}, f"Mode must be 'train' or 'val', not {mode}."
@@ -106,7 +105,9 @@ class DetectionTrainer(BaseTrainer):
         keys = [f"{prefix}/{x}" for x in self.loss_names]
         if loss_items is not None:
             loss_items = [round(float(x), 5) for x in loss_items]  # convert tensors to 5 decimal place floats
-            loss_items[1] = 0 if (prefix == "val" and self.args.single_cls_val) else loss_items[1] # if single_cls_val, set cls_loss to 0   
+            loss_items[1] = (
+                0 if (prefix == "val" and self.args.single_cls_val) else loss_items[1]
+            )  # if single_cls_val, set cls_loss to 0
             return dict(zip(keys, loss_items))
         else:
             return keys

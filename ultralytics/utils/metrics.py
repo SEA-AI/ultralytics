@@ -858,7 +858,12 @@ class DetMetrics(SimpleClass):
         """Returns a list of keys for accessing specific metrics."""
         mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
         mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
-        return ["metrics/precision(B)", "metrics/recall(B)", f"metrics/mAP{mAP_lb}(B)", f"metrics/mAP{mAP_lb}-{mAP_ub}(B)"]
+        return [
+            "metrics/precision(B)",
+            "metrics/recall(B)",
+            f"metrics/mAP{mAP_lb}(B)",
+            f"metrics/mAP{mAP_lb}-{mAP_ub}(B)",
+        ]
 
     def mean_results(self):
         """Calculate mean of detected objects & return precision, recall, mAP50, and mAP50-95."""

@@ -149,7 +149,7 @@ class BaseDataset(Dataset):
                 self.labels[i]["cls"][:, 0] = 0
 
     def imread_16bit_compatible(self, f: str) -> np.ndarray:
-        """Read image with OpenCV, convert from 16-bit to 8-bit if necessary"""
+        """Read image with OpenCV, convert from 16-bit to 8-bit if necessary."""
         im = cv2.imread(f, cv2.IMREAD_UNCHANGED)  # load image as BGR if 3-ch image
         if im.dtype == np.uint8 and (im.ndim == 2 or im.shape[-1] == 1):
             im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)  # BGR
