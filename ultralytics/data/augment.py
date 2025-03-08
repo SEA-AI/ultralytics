@@ -1517,7 +1517,7 @@ class LetterBox:
         self,
         new_shape=(640, 640),
         auto=False,
-        scaleFill=False,
+        scale_fill=False,
         scaleup=True,
         center=True,
         stride=32,
