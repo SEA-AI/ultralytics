@@ -568,7 +568,7 @@ class BaseTrainer:
             raise RuntimeError(emojis(f"Dataset '{clean_url(self.args.data)}' error ❌ {e}")) from e
         self.data = data
         if self.args.single_cls:
-            LOGGER.info("Overriding class names with single class")
+            LOGGER.info("Overriding class names with single class.")
             self.data["names"] = {0: "item"}
             self.data["nc"] = 1
         return data["train"], data.get("val") or data.get("test")
