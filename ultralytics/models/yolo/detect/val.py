@@ -59,7 +59,7 @@ class DetectionValidator(BaseValidator):
         self.is_lvis = False
         self.class_map = None
         self.args.task = "detect"
-        self.metrics = DetMetrics(save_dir=self.save_dir, on_plot=self.on_plot, args=self.args)
+        self.metrics = DetMetrics(save_dir=self.save_dir, args=self.args)
         mAP_lb = self.args.mAP_lb
         mAP_ub = self.args.mAP_ub
         self.iouv = torch.linspace(mAP_lb, mAP_ub, 10)  # iou vector for mAP@mAP_lb:mAP_ub
