@@ -576,7 +576,21 @@ def xyxyxyxy2xywhr(x):
         # NOTE: Use cv2.minAreaRect to get accurate xywhr,
         # especially some objects are cut off by augmentations in dataloader.
         (cx, cy), (w, h), angle = cv2.minAreaRect(pts)
+
+
+        # Ensure width is always larger than height
+        if h > w:
+            # Swap width and height
+            w, h = h, w
+            # Adjust angle (add 90 degrees)
+            angle += 90
+            
+        # Normalize angle to range [-90, 90]
+        angle = angle % 180
+        if angle > 90:
+            angle -= 180
         rboxes.append([cx, cy, w, h, angle / 180 * np.pi])
+
     return torch.tensor(rboxes, device=x.device, dtype=x.dtype) if is_torch else np.asarray(rboxes)
 
 
@@ -610,6 +624,54 @@ def xywhr2xyxyxyxy(x):
     pt4 = ctr - vec1 + vec2
     return stack([pt1, pt2, pt3, pt4], -2)
 
+
+
+def xywhr2line(x):
+    """
+    Convert batched Oriented Bounding Boxes (OBB) from [xywh, rotation] to a horizontal line 
+    passing through the center of the box.
+
+    Args:
+        x (numpy.ndarray | torch.Tensor): Boxes in [cx, cy, w, h, rotation] format of shape (n, 5) or (b, n, 5).
+
+    Returns:
+        (numpy.ndarray | torch.Tensor): Horizontal line endpoints of shape (n, 2, 2) or (b, n, 2, 2).
+                                       Format is [[x1, y1], [x2, y2]] for each box.
+    """
+    cos, sin, cat, stack = (
+        (torch.cos, torch.sin, torch.cat, torch.stack)
+        if isinstance(x, torch.Tensor)
+        else (np.cos, np.sin, np.concatenate, np.stack)
+    )
+
+    ctr = x[..., :2]  # Center point of the box
+    w, h, angle = (x[..., i : i + 1] for i in range(2, 5))
+    
+    # Calculate endpoints of a horizontal line through the center with length equal to width
+    cos_value, sin_value = cos(angle), sin(angle)
+    vec = [w / 2 * cos_value, w / 2 * sin_value]
+    x_offset = vec[0][0] if any(vec[0]) else 0
+    y_offset = vec[1][0] if any(vec[0]) else 0
+    vec = cat(vec, -1)
+
+
+    if x_offset < y_offset:
+        print("---------------------")
+        print("angle", angle)
+        print("cos(angle)", cos_value)
+        print("sin(angle)", sin_value)
+        print("vec", vec)
+        print("---------------------")
+
+
+    
+    
+    # Calculate two endpoints of the line
+    pt1 = ctr + vec
+    pt2 = ctr - vec
+    
+    # Stack the two points to form the line
+    return stack([pt1, pt2], -2)
 
 def ltwh2xyxy(x):
     """
