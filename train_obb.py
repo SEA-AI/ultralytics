@@ -6,4 +6,4 @@ settings.update({"wandb": True})
 model = YOLO("yolov8n-obb.pt")
 
 # Train the model on the DOTAv1 dataset
-results = model.train(data="horizon-obb-medium.yaml", epochs=20, imgsz=1024, mosaic=1, multi_scale=True, degrees=25)
+results = model.train(data="horizon-obb-large.yaml", epochs=20, imgsz=1024, mosaic=1, multi_scale=True, degrees=25)
