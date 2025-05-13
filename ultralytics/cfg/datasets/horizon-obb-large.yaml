@@ -1,0 +1,22 @@
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
+
+# DOTA8 dataset 8 images from split DOTAv1 dataset by Ultralytics
+# Documentation: https://docs.ultralytics.com/datasets/obb/dota8/
+# Example usage: yolo train model=yolov8n-obb.pt data=dota8.yaml
+# parent
+# ├── ultralytics
+# └── datasets
+#     └── horizon-obb-large-ir
+#     └── horizon-obb-large-rgb
+
+train: 
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-ir/images/train
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-rgb/images/train
+val:
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-ir/images/val
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-rgb/images/val
+
+# Classes for DOTA 1.0
+names:
+  0: horizon
+# Download script/URL (optional)
