@@ -299,6 +299,7 @@ class Annotator:
         if self.pil or not is_ascii(label):
             if rotated:
                 p1 = box[0]
+                p3 = box[2]
                 self.draw.polygon([tuple(b) for b in box], width=self.lw, outline=color)  # PIL requires tuple box
             else:
                 p1 = (box[0], box[1])
@@ -308,12 +309,18 @@ class Annotator:
                 outside = p1[1] >= h  # label fits outside box
                 if p1[0] > self.im.size[0] - w:  # size is (w, h), check if label extend beyond right side of image
                     p1 = self.im.size[0] - w, p1[1]
-                self.draw.rectangle(
-                    (p1[0], p1[1] - h if outside else p1[1], p1[0] + w + 1, p1[1] + 1 if outside else p1[1] + h + 1),
-                    fill=color,
-                )
-                # self.draw.text([box[0], box[1]], label, fill=txt_color, font=self.font, anchor='ls')  # for PIL>8.0
-                self.draw.text((p1[0], p1[1] - h if outside else p1[1]), label, fill=txt_color, font=self.font)
+
+
+                # Compute center x of box (between p1 and p3, assuming p1 and p3 are diagonally opposite)
+                center_x = (p1[0] + p3[0]) / 2
+                label_y = min(p1[1], p3[1]) - h if outside else min(p1[1], p3[1])
+                label_y -= 10
+
+                # Center the label text horizontally
+                text_width = self.font.getlength(label) if hasattr(self.font, "getlength") else self.font.getsize(label)[0]
+                label_x = center_x - text_width / 2
+
+                self.draw.text((label_x, label_y), label, fill=(79, 68, 255), font=self.font)
         else:  # cv2
             if rotated:
                 p1 = [int(b) for b in box[0]]
@@ -518,6 +525,94 @@ class Annotator:
         width = x_max - x_min
         height = y_max - y_min
         return width, height, width * height
+
+
+    def line_label(self, line, label="", color=(128, 128, 128), txt_color=(255, 255, 255)):
+        """
+        Draw a line on an image with a given label.
+
+        Args:
+            line (tuple or list): The line coordinates as two points [[x1, y1], [x2, y2]].
+            label (str, optional): The text label to be displayed.
+            color (tuple, optional): The color of the line (B, G, R) for OpenCV or (R, G, B) for PIL.
+            txt_color (tuple, optional): The color of the text (R, G, B) for PIL or (B, G, R) for OpenCV.
+
+        Examples:
+            >>> from ultralytics.utils.plotting import Annotator
+            >>> im0 = cv2.imread("test.png")
+            >>> annotator = Annotator(im0, line_width=2)
+            >>> annotator.line_label(line=[[10, 20], [100, 20]], label="horizon")
+        """
+        txt_color = self.get_txt_color(color, txt_color)
+        if isinstance(line, torch.Tensor):
+            line = line.tolist()
+        
+        # Extract the two endpoints
+        p1, p2 = line[0], line[1]
+        
+        # Calculate the midpoint of the line for label placement
+        mid_x = (p1[0] + p2[0]) / 2
+        mid_y = (p1[1] + p2[1]) / 2
+        
+        if self.pil or not is_ascii(label):
+            # Draw the line in PIL
+            self.draw.line((tuple(p1), tuple(p2)), fill=color, width=self.lw)
+            
+            if label:
+                w, h = self.font.getsize(label)  # text width, height
+                # Position the label above the midpoint of the line
+                label_pos = (int(mid_x - w/2), int(mid_y - h - 5))
+                
+                # Check if label extends beyond image boundaries and adjust if needed
+                if label_pos[0] < 0:
+                    label_pos = (0, label_pos[1])
+                if label_pos[0] > self.im.size[0] - w:
+                    label_pos = (self.im.size[0] - w, label_pos[1])
+                    
+                # Draw label background
+                self.draw.rectangle(
+                    (label_pos[0], label_pos[1], label_pos[0] + w + 1, label_pos[1] + h + 1),
+                    fill=color,
+                )
+                # Draw label text
+                self.draw.text(label_pos, label, fill=txt_color, font=self.font)
+        else:  # cv2
+            # Convert points to integers for OpenCV
+            p1 = (int(p1[0]), int(p1[1]))
+            p2 = (int(p2[0]), int(p2[1]))
+            
+            # Draw the line using OpenCV
+            cv2.line(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
+            
+            if label:
+                w, h = cv2.getTextSize(label, 0, fontScale=self.sf, thickness=self.tf)[0]  # text width, height
+                h += 3  # add pixels to pad text
+                
+                # Position the label above the midpoint of the line
+                label_p1 = (int(mid_x - w/2), int(mid_y - 5))
+                
+                # Check if label extends beyond image boundaries and adjust if needed
+                if label_p1[0] < 0:
+                    label_p1 = (0, label_p1[1])
+                if label_p1[0] > self.im.shape[1] - w:
+                    label_p1 = (self.im.shape[1] - w, label_p1[1])
+                    
+                label_p2 = (label_p1[0] + w, label_p1[1] - h)
+                
+                # Draw label background
+                cv2.rectangle(self.im, label_p1, label_p2, color, -1, cv2.LINE_AA)  # filled
+                
+                # Draw label text
+                cv2.putText(
+                    self.im,
+                    label,
+                    (label_p1[0], label_p1[1] - 2),
+                    0,
+                    self.sf,
+                    txt_color,
+                    thickness=self.tf,
+                    lineType=cv2.LINE_AA,)
+
 
 
 @TryExcept()  # known issue https://github.com/ultralytics/yolov5/issues/5395
@@ -735,6 +830,17 @@ def plot_images(
                 boxes[..., 0] += x
                 boxes[..., 1] += y
                 is_obb = boxes.shape[-1] == 5  # xywhr
+
+                lines = ops.xywhr2line(boxes) if is_obb else None
+
+                for j, line in enumerate(lines.astype(np.int64).tolist()):
+                    c = classes[j]
+                    color = colors(c)
+                    c = names.get(c, c) if names else c
+                    if labels or conf[j] > conf_thres:
+                        label = f"{c}" if labels else f"{c} {conf[j]:.1f}"
+                        annotator.line_label(line, None, color=color)
+
                 boxes = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
                 for j, box in enumerate(boxes.astype(np.int64).tolist()):
                     c = classes[j]
@@ -742,7 +848,8 @@ def plot_images(
                     c = names.get(c, c) if names else c
                     if labels or conf[j] > conf_thres:
                         label = f"{c}" if labels else f"{c} {conf[j]:.1f}"
-                        annotator.box_label(box, label, color=color, rotated=is_obb)
+                        # draw them with
+                        annotator.box_label(box, label, color=(0, 0, 0), rotated=is_obb)
 
             elif len(classes):
                 for c in classes:
