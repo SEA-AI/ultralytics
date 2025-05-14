@@ -1,4 +1,8 @@
 from ultralytics import YOLO, settings
+import wandb
+import os
+
+wandb.login(key=os.environ.get('WANDB_API_KEY')
 
 settings.update({"wandb": True})
 
@@ -6,4 +10,4 @@ settings.update({"wandb": True})
 model = YOLO("yolov8n-obb.pt")
 
 # Train the model on the DOTAv1 dataset
-results = model.train(data="horizon-obb-large.yaml", epochs=20, imgsz=1024, mosaic=1, multi_scale=True, degrees=25)
+results = model.train(data="horizon-obb-large.yaml", epochs=25, imgsz=960, mosaic=1, multi_scale=True, degrees=25, fill_value=0)
