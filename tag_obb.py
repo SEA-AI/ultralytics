@@ -96,8 +96,8 @@ def subsample_view(view: fo.DatasetView, horizon_field: str, total_count: int, n
     if len(annotated) < n_annotated:
         raise ValueError(f"Not enough annotated samples: needed {n_annotated}, found {len(annotated)}")
 
-    sampled_noise = noise.shuffle().limit(n_noise)
-    sampled_annotated = annotated.shuffle().limit(n_annotated)
+    sampled_noise = noise.sort_by("uniqueness", reverse=True).limit(n_noise)
+    sampled_annotated = annotated.sort_by("uniqueness", reverse=True).limit(n_annotated)
 
     return sampled_annotated.concat(sampled_noise)
 
@@ -177,12 +177,12 @@ def tag_horizon_dataset(
 def parse_args():
     parser = argparse.ArgumentParser(description="Tag a FiftyOne dataset with balanced noise and train/val splits")
     parser.add_argument("--dataset-name", type=str, required=True, help="Name of the FiftyOne dataset")
-    parser.add_argument("--tags-suffix", type=str, required=True, help="Suffix used in TRAIN_/VAL_ tags (e.g. MYTAG → TRAIN_MYTAG)")
-    parser.add_argument("--total-images", type=int, default=100, help="Total number of samples to tag")
+    parser.add_argument("--tags-suffix", type=str, default="OBB_HORIZON", required=True, help="Suffix used in TRAIN_/VAL_ tags (e.g. MYTAG → TRAIN_MYTAG)")
+    parser.add_argument("--total-images", type=int, default=10000, help="Total number of samples to tag")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="Validation ratio (0.2 = 20%%)")
-    parser.add_argument("--noise-ratio", type=float, default=0.2, help="Noise (no-horizon) ratio (0.2 = 20%%)")
+    parser.add_argument("--noise-ratio", type=float, default=0.0, help="Noise (no-horizon) ratio (0.2 = 20%%)")
     parser.add_argument("--camera-list", type=str, nargs="+", required=True, help="List of camera names to include")
-    parser.add_argument("--split-by", type=str, default="trip", help="DB field to split the training data")
+    parser.add_argument("--split-by", type=str, default="sequence", help="DB field to split the training data")
     parser.add_argument("--horizon-field", type=str, default="ground_truth_pl", help="Label field to check for horizon detections")
     return parser.parse_args()
 
