@@ -650,22 +650,8 @@ def xywhr2line(x):
     # Calculate endpoints of a horizontal line through the center with length equal to width
     cos_value, sin_value = cos(angle), sin(angle)
     vec = [w / 2 * cos_value, w / 2 * sin_value]
-    x_offset = vec[0][0] if any(vec[0]) else 0
-    y_offset = vec[1][0] if any(vec[0]) else 0
     vec = cat(vec, -1)
 
-
-    if x_offset < y_offset:
-        print("---------------------")
-        print("angle", angle)
-        print("cos(angle)", cos_value)
-        print("sin(angle)", sin_value)
-        print("vec", vec)
-        print("---------------------")
-
-
-    
-    
     # Calculate two endpoints of the line
     pt1 = ctr + vec
     pt2 = ctr - vec

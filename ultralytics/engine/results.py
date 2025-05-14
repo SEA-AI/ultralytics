@@ -551,6 +551,8 @@ class Results(SimpleClass):
                 name = ("" if id is None else f"id:{id} ") + names[c]
                 label = (f"{name} {d_conf:.2f}" if conf else name) if labels else None
                 box = d.xyxyxyxy.reshape(-1, 4, 2).squeeze() if is_obb else d.xyxy.squeeze()
+                line =  ops.xywhr2line(d.xywhr.squeeze())
+                
                 annotator.box_label(
                     box,
                     label,
@@ -566,6 +568,23 @@ class Results(SimpleClass):
                     ),
                     rotated=is_obb,
                 )
+
+                annotator.line_label(
+                    line,
+                    label,
+                    color=colors(
+                        c
+                        if color_mode == "class"
+                        else id
+                        if id is not None
+                        else i
+                        if color_mode == "instance"
+                        else None,
+                        True,
+                    )
+                )
+
+
 
         # Plot Classify results
         if pred_probs is not None and show_probs:
