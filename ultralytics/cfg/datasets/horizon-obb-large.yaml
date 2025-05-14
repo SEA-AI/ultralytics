@@ -10,11 +10,11 @@
 #     └── horizon-obb-large-rgb
 
 train: 
-  - /home/mldev/Documents/Git/datasets/horizon-obb-large-ir/images/train
-  - /home/mldev/Documents/Git/datasets/horizon-obb-large-rgb/images/train
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-ir-uniquness/images/train
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-rgb-uniquness/images/train
 val:
-  - /home/mldev/Documents/Git/datasets/horizon-obb-large-ir/images/val
-  - /home/mldev/Documents/Git/datasets/horizon-obb-large-rgb/images/val
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-ir-uniquness/images/val
+  - /home/mldev/Documents/Git/datasets/horizon-obb-large-rgb-uniquness/images/val
 
 # Classes for DOTA 1.0
 names:

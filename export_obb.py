@@ -26,6 +26,11 @@ def extend_line(x1y1, x2y2):
     return [0.0, y_at_x0] , [1.0, y_at_x1]
 
 
+
+def is_close(value, target, margin):
+    return abs(value - target) <= margin
+
+
 def export_samples(samples, split, field, local_dataset_dir):
     os.makedirs(os.path.join(local_dataset_dir, "images", split), exist_ok=True)
     os.makedirs(os.path.join(local_dataset_dir, "labels", split), exist_ok=True)
@@ -33,8 +38,11 @@ def export_samples(samples, split, field, local_dataset_dir):
     images_dir = os.listdir(os.path.join(local_dataset_dir, "images", split))
     labels_dir = os.listdir(os.path.join(local_dataset_dir, "labels", split))
 
+    min_angle = float("inf")
+    max_angle = float("-inf")
+
     for sample in tqdm(samples):
-        #copy and paste filepath
+        # copy and paste filepath
         filename = os.path.basename(sample.filepath)
         if os.path.join(local_dataset_dir, "images", split, filename) in images_dir and os.path.join(local_dataset_dir, "labels", split, filename.split(".")[0] + ".txt") in labels_dir:
             continue
@@ -60,10 +68,11 @@ def export_samples(samples, split, field, local_dataset_dir):
                 x1y1, x2y2 = extend_line(x1y1, x2y2)
 
                 # ortogonal direction
-                xyxyxyxyxy = np.array([x1y1[0], x1y1[1], x1y1[0], x1y1[1], x2y2[0], x2y2[1], x2y2[0], x2y2[1]]).reshape(2,4) * width
+                xyxyxyxyxy = np.array([x1y1[0], x1y1[1], x2y2[0], x2y2[1], x2y2[0], x2y2[1], x1y1[0], x1y1[1]]).reshape(2,4) * width
                 xyxyxyxyxy = np.expand_dims(xyxyxyxyxy, axis=0).astype(np.int32) # xyxyxyxyxy2xywhr needs shape [..., 4, 2] and int32
                 xywhr = xyxyxyxy2xywhr(xyxyxyxyxy)
                 xywhr[:, 3] = int(width * 0.1) # add height so that iou can be calculated
+                    
                 xyxyxyxyxy = xywhr2xyxyxyxy(xywhr).astype(np.float32)/width
                 xyxyxyxyxy = np.clip(xyxyxyxyxy, 0, 1)
                 xyxyxyxyxy = np.squeeze(xyxyxyxyxy, axis=0).reshape(-1)
@@ -76,13 +85,14 @@ def export_samples(samples, split, field, local_dataset_dir):
                         f.write(" ".join([str(i) for i in line]) + "\n")
 
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--fo-dataset-name", default="TRAIN_BB_THERMAL_2024_09", help="dataset name")
-    parser.add_argument("--train-tag", default="TRAIN_HORIZON_OBB_LARGE_MIX", help="train tag")
-    parser.add_argument("--val-tag", default="VAL_HORIZON_OBB_LARGE_MIX", help="val tag")
+    parser.add_argument("--train-tag", default="TRAIN_HORIZON_OBB", help="train tag")
+    parser.add_argument("--val-tag", default="VAL_HORIZON_OBB", help="val tag")
     parser.add_argument("--field", default="ground_truth_pl", help="polyline field name")
-    parser.add_argument("--local-dataset-dir", default="../datasets/mix/horizon-obb-medium", help="saved dataset dir")
+    parser.add_argument("--local-dataset-dir", default="../datasets/horizon-obb-large-ir-uniquness", help="saved dataset dir")
     args = parser.parse_args()
     
     os.makedirs(args.local_dataset_dir, exist_ok=True)

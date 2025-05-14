@@ -2,7 +2,7 @@ from ultralytics import YOLO, settings
 import wandb
 import os
 
-wandb.login(key=os.environ.get('WANDB_API_KEY')
+wandb.login(key=os.environ.get('WANDB_API_KEY'))
 
 settings.update({"wandb": True})
 
