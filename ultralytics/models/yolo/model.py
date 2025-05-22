@@ -15,7 +15,7 @@ from ultralytics.nn.tasks import (
     YOLOEModel,
     YOLOESegModel,
 )
-from ultralytics.utils import ROOT, yaml_load
+from ultralytics.utils import ROOT, YAML
 
 
 class YOLO(Model):
@@ -39,7 +39,7 @@ class YOLO(Model):
             >>> model = YOLO("yolo11n.pt")  # load a pretrained YOLOv11n detection model
             >>> model = YOLO("yolo11n-seg.pt")  # load a pretrained YOLO11n segmentation model
         """
-        path = Path(model)
+        path = Path(model if isinstance(model, (str, Path)) else "")
         if "-world" in path.stem and path.suffix in {".pt", ".yaml", ".yml"}:  # if YOLOWorld PyTorch model
             new_instance = YOLOWorld(path, verbose=verbose)
             self.__class__ = type(new_instance)
@@ -51,6 +51,12 @@ class YOLO(Model):
         else:
             # Continue with default YOLO initialization
             super().__init__(model=model, task=task, verbose=verbose)
+            if hasattr(self.model, "model") and "RTDETR" in self.model.model[-1]._get_name():  # if RTDETR head
+                from ultralytics import RTDETR
+
+                new_instance = RTDETR(self)
+                self.__class__ = type(new_instance)
+                self.__dict__ = new_instance.__dict__
 
     @property
     def task_map(self):
@@ -107,7 +113,7 @@ class YOLOWorld(Model):
 
         # Assign default COCO class names when there are no custom names
         if not hasattr(self.model, "names"):
-            self.model.names = yaml_load(ROOT / "cfg/datasets/coco8.yaml").get("names")
+            self.model.names = YAML.load(ROOT / "cfg/datasets/coco8.yaml").get("names")
 
     @property
     def task_map(self):
@@ -156,7 +162,7 @@ class YOLOE(Model):
 
         # Assign default COCO class names when there are no custom names
         if not hasattr(self.model, "names"):
-            self.model.names = yaml_load(ROOT / "cfg/datasets/coco8.yaml").get("names")
+            self.model.names = YAML.load(ROOT / "cfg/datasets/coco8.yaml").get("names")
 
     @property
     def task_map(self):
@@ -331,7 +337,7 @@ class YOLOE(Model):
         if len(visual_prompts):
             num_cls = (
                 max(len(set(c)) for c in visual_prompts["cls"])
-                if isinstance(source, list)  # means multiple images
+                if isinstance(source, list) and refer_image is None  # means multiple images
                 else len(set(visual_prompts["cls"]))
             )
             self.model.model[-1].nc = num_cls

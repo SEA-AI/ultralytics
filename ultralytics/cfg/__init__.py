@@ -7,8 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Union
 
-import cv2
-
 from ultralytics import __version__
 from ultralytics.utils import (
     ASSETS,
@@ -23,13 +21,12 @@ from ultralytics.utils import (
     SETTINGS,
     SETTINGS_FILE,
     TESTS_RUNNING,
+    YAML,
     IterableSimpleNamespace,
     checks,
     colorstr,
     deprecation_warn,
     vscode_msg,
-    yaml_load,
-    yaml_print,
 )
 
 # Define valid solutions
@@ -111,8 +108,8 @@ CLI_HELP_MSG = f"""
 
         yolo TASK MODE ARGS
 
-        Where   TASK (optional) is one of {TASKS}
-                MODE (required) is one of {MODES}
+        Where   TASK (optional) is one of {list(TASKS)}
+                MODE (required) is one of {list(MODES)}
                 ARGS (optional) are any number of custom 'arg=value' pairs like 'imgsz=320' that override defaults.
                     See all ARGS at https://docs.ultralytics.com/usage/cfg or with 'yolo cfg'
 
@@ -270,7 +267,7 @@ def cfg2dict(cfg: Union[str, Path, Dict, SimpleNamespace]) -> Dict:
         - If cfg is already a dictionary, it's returned unchanged.
     """
     if isinstance(cfg, (str, Path)):
-        cfg = yaml_load(cfg)  # load dict
+        cfg = YAML.load(cfg)  # load dict
     elif isinstance(cfg, SimpleNamespace):
         cfg = vars(cfg)  # convert to dict
     return cfg
@@ -314,7 +311,7 @@ def get_cfg(cfg: Union[str, Path, Dict, SimpleNamespace] = DEFAULT_CFG_DICT, ove
         if k in cfg and isinstance(cfg[k], (int, float)):
             cfg[k] = str(cfg[k])
     if cfg.get("name") == "model":  # assign model to 'name' arg
-        cfg["name"] = str(cfg.get("model", "")).split(".")[0]
+        cfg["name"] = str(cfg.get("model", "")).partition(".")[0]
         LOGGER.warning(f"'name=model' automatically updated to 'name={cfg['name']}'.")
 
     # Type and Value checks
@@ -708,6 +705,8 @@ def handle_yolo_solutions(args: List[str]) -> None:
             ]
         )
     else:
+        import cv2  # Only needed for cap and vw functionality
+
         from ultralytics import solutions
 
         solution = getattr(solutions, SOLUTION_MAP[solution_name])(is_cli=True, **overrides)  # class i.e ObjectCounter
@@ -733,7 +732,7 @@ def handle_yolo_solutions(args: List[str]) -> None:
                 results = solution(frame, f_n := f_n + 1) if solution_name == "analytics" else solution(frame)
                 if solution_name != "crop":
                     vw.write(results.plot_im)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
+                if solution.CFG["show"] and cv2.waitKey(1) & 0xFF == ord("q"):
                     break
         finally:
             cap.release()
@@ -853,7 +852,7 @@ def entrypoint(debug: str = "") -> None:
         "checks": checks.collect_system_info,
         "version": lambda: LOGGER.info(__version__),
         "settings": lambda: handle_yolo_settings(args[1:]),
-        "cfg": lambda: yaml_print(DEFAULT_CFG_PATH),
+        "cfg": lambda: YAML.print(DEFAULT_CFG_PATH),
         "hub": lambda: handle_yolo_hub(args[1:]),
         "login": lambda: handle_yolo_hub(args),
         "logout": lambda: handle_yolo_hub(args),
@@ -880,7 +879,7 @@ def entrypoint(debug: str = "") -> None:
                 k, v = parse_key_value_pair(a)
                 if k == "cfg" and v is not None:  # custom.yaml passed
                     LOGGER.info(f"Overriding {DEFAULT_CFG_PATH} with {v}")
-                    overrides = {k: val for k, val in yaml_load(checks.check_yaml(v)).items() if k != "cfg"}
+                    overrides = {k: val for k, val in YAML.load(checks.check_yaml(v)).items() if k != "cfg"}
                 else:
                     overrides[k] = v
             except (NameError, SyntaxError, ValueError, AssertionError) as e:
@@ -910,9 +909,9 @@ def entrypoint(debug: str = "") -> None:
     mode = overrides.get("mode")
     if mode is None:
         mode = DEFAULT_CFG.mode or "predict"
-        LOGGER.warning(f"'mode' argument is missing. Valid modes are {MODES}. Using default 'mode={mode}'.")
+        LOGGER.warning(f"'mode' argument is missing. Valid modes are {list(MODES)}. Using default 'mode={mode}'.")
     elif mode not in MODES:
-        raise ValueError(f"Invalid 'mode={mode}'. Valid modes are {MODES}.\n{CLI_HELP_MSG}")
+        raise ValueError(f"Invalid 'mode={mode}'. Valid modes are {list(MODES)}.\n{CLI_HELP_MSG}")
 
     # Task
     task = overrides.pop("task", None)
@@ -920,11 +919,11 @@ def entrypoint(debug: str = "") -> None:
         if task not in TASKS:
             if task == "track":
                 LOGGER.warning(
-                    "invalid 'task=track', setting 'task=detect' and 'mode=track'. Valid tasks are {TASKS}.\n{CLI_HELP_MSG}."
+                    f"invalid 'task=track', setting 'task=detect' and 'mode=track'. Valid tasks are {list(TASKS)}.\n{CLI_HELP_MSG}."
                 )
                 task, mode = "detect", "track"
             else:
-                raise ValueError(f"Invalid 'task={task}'. Valid tasks are {TASKS}.\n{CLI_HELP_MSG}")
+                raise ValueError(f"Invalid 'task={task}'. Valid tasks are {list(TASKS)}.\n{CLI_HELP_MSG}")
         if "model" not in overrides:
             overrides["model"] = TASK2MODEL[task]
 
