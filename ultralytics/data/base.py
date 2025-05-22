@@ -204,21 +204,6 @@ class BaseDataset(Dataset):
             if self.single_cls:
                 self.labels[i]["cls"][:, 0] = 0
 
-    def imread_16bit_compatible(self, f: str) -> np.ndarray:
-        """Read image with OpenCV, convert from 16-bit to 8-bit if necessary"""
-        im = cv2.imread(f, cv2.IMREAD_UNCHANGED)  # load image as BGR if 3-ch image
-        if im.dtype == np.uint8 and (im.ndim == 2 or im.shape[-1] == 1):
-            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)  # BGR
-        if im.dtype == np.uint16:
-            try:
-                from .augment16 import convert_16bit_to_8bit
-
-                im = convert_16bit_to_8bit(im, augment=self.augment)  # GRAY as BGR
-            except Exception as e:
-                print(f"WARNING: Failed to convert image {f} from 16-bit to 8-bit")
-                raise e
-        return im
-
     def load_image(self, i, rect_mode=True):
         """
         Load an image from dataset index 'i'.
@@ -245,10 +230,7 @@ class BaseDataset(Dataset):
                     Path(fn).unlink(missing_ok=True)
                     im = imread(f, flags=self.cv2_flag)  # BGR
             else:  # read image
-                if self.cv2_flag == cv2.IMREAD_COLOR:
-                    im = self.imread_16bit_compatible(f)  # BGR
-                else:
-                    im = imread(f, flags=self.cv2_flag)  # BGR
+                im = imread(f, flags=self.cv2_flag)  # BGR
             if im is None:
                 raise FileNotFoundError(f"Image Not Found {f}")
 
@@ -296,7 +278,7 @@ class BaseDataset(Dataset):
         """Save an image as an *.npy file for faster loading."""
         f = self.npy_files[i]
         if not f.exists():
-            np.save(f.as_posix(), self.imread_16bit_compatible(self.im_files[i]), allow_pickle=False)
+            np.save(f.as_posix(), imread(self.im_files[i], flags=self.cv2_flag), allow_pickle=False)
 
     def check_cache_disk(self, safety_margin=0.5):
         """
@@ -347,7 +329,7 @@ class BaseDataset(Dataset):
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
         n = min(self.ni, 30)  # extrapolate from 30 random images
         for _ in range(n):
-            im = self.imread_16bit_compatible(random.choice(self.im_files))  # sample image
+            im = imread(random.choice(self.im_files))  # sample image
             if im is None:
                 continue
             ratio = self.imgsz / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
