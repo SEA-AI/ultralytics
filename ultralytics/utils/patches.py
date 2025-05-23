@@ -6,19 +6,21 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+from PIL import Image
 import torch
 
 # OpenCV Multilanguage-friendly functions ------------------------------------------------------------------------------
 _imshow = cv2.imshow  # copy to avoid recursion errors
 
 
-def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
+def imread(filename: str, flags: int = cv2.IMREAD_COLOR, augment: bool = False):
     """
     Read an image from a file.
 
     Args:
         filename (str): Path to the file to read.
         flags (int): Flag that can take values of cv2.IMREAD_*. Controls how the image is read.
+        augment (bool): Whether to augment the image during 16 -> 8 bit conversion.
 
     Returns:
         (np.ndarray): The read image.
@@ -27,6 +29,13 @@ def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
         >>> img = imread("path/to/image.jpg")
         >>> img = imread("path/to/image.jpg", cv2.IMREAD_GRAYSCALE)
     """
+    if filename.endswith(".png"):
+        # handle 16bit pngs from thermal cameras
+        im = Image.open(filename)  # lazy load
+        if im.mode == "I;16":
+            from ultralytics.data.augment16 import convert_16bit_to_8bit
+
+            return convert_16bit_to_8bit(np.array(im), augment=augment)  # GRAY as BGR
     file_bytes = np.fromfile(filename, np.uint8)
     if filename.endswith((".tiff", ".tif")):
         success, frames = cv2.imdecodemulti(file_bytes, cv2.IMREAD_UNCHANGED)
