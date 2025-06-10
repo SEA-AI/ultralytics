@@ -575,7 +575,18 @@ def xyxyxyxy2xywhr(x):
     for pts in points:
         # NOTE: Use cv2.minAreaRect to get accurate xywhr,
         # especially some objects are cut off by augmentations in dataloader.
-        (cx, cy), (w, h), angle = cv2.minAreaRect(pts)        
+        (cx, cy), (w, h), angle = cv2.minAreaRect(pts)    
+        # Ensure width is always larger than height
+        if h > w:
+            # Swap width and height
+            w, h = h, w
+            # Adjust angle (add 90 degrees)
+            angle += 90
+
+        # Normalize angle to range [-90, 90]
+        angle = angle % 180
+        if angle > 90:
+            angle -= 180            
         rboxes.append([cx, cy, w, h, angle / 180 * np.pi])
 
     return torch.tensor(rboxes, device=x.device, dtype=x.dtype) if is_torch else np.asarray(rboxes)

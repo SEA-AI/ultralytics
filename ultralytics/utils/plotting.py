@@ -821,6 +821,11 @@ def plot_images(
             if len(bboxes):
                 boxes = bboxes[idx]
                 conf = confs[idx] if confs is not None else None  # check for confidence presence (label vs pred)
+                if conf is not None and len(conf) > 1:
+                    top_idx = np.argmax(conf)  # Index of the highest confidence box
+                    boxes = boxes[top_idx : top_idx + 1]
+                    conf = conf[top_idx : top_idx + 1]
+                    classes = classes[top_idx : top_idx + 1]
                 if len(boxes):
                     if boxes[:, :4].max() <= 1.1:  # if normalized with tolerance 0.1
                         boxes[..., [0, 2]] *= w  # scale to pixels
