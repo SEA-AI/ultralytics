@@ -170,7 +170,7 @@ class DetectionValidator(BaseValidator):
         Returns:
             (Dict[str, torch.Tensor]): Prepared predictions in native space.
         """
-        if self.args.single_cls:
+        if self.args.single_cls or self.args.single_cls_val:
             pred["cls"] *= 0
         return pred
 
@@ -185,8 +185,6 @@ class DetectionValidator(BaseValidator):
         for si, pred in enumerate(preds):
             self.seen += 1
             pbatch = self._prepare_batch(si, batch)
-            if self.args.single_cls or self.args.single_cls_val:
-                pred["cls"] = 0
             predn = self._prepare_pred(pred)
 
             cls = pbatch["cls"].cpu().numpy()
