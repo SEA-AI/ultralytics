@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -73,7 +73,7 @@ class DetectionValidator(BaseValidator):
         """
         batch["img"] = batch["img"].to(self.device, non_blocking=True)
         batch["img"] = (batch["img"].half() if self.args.half else batch["img"].float()) / 255
-        for k in ["batch_idx", "cls", "bboxes"]:
+        for k in {"batch_idx", "cls", "bboxes"}:
             batch[k] = batch[k].to(self.device)
 
         return batch
@@ -99,8 +99,8 @@ class DetectionValidator(BaseValidator):
         self.end2end = getattr(model, "end2end", False)
         self.seen = 0
         self.jdict = []
-        self.metrics.names = self.names
-        self.confusion_matrix = ConfusionMatrix(names=list(model.names.values()))
+        self.metrics.names = model.names
+        self.confusion_matrix = ConfusionMatrix(names=model.names, save_matches=self.args.plots and self.args.visualize)
 
     def get_desc(self) -> str:
         """Return a formatted string summarizing class metrics of YOLO model."""
@@ -151,28 +151,28 @@ class DetectionValidator(BaseValidator):
         ratio_pad = batch["ratio_pad"][si]
         if len(cls):
             bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]  # target boxes
-            ops.scale_boxes(imgsz, bbox, ori_shape, ratio_pad=ratio_pad)  # native-space labels
-        return {"cls": cls, "bboxes": bbox, "ori_shape": ori_shape, "imgsz": imgsz, "ratio_pad": ratio_pad}
+        return {
+            "cls": cls,
+            "bboxes": bbox,
+            "ori_shape": ori_shape,
+            "imgsz": imgsz,
+            "ratio_pad": ratio_pad,
+            "im_file": batch["im_file"][si],
+        }
 
-    def _prepare_pred(self, pred: Dict[str, torch.Tensor], pbatch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+    def _prepare_pred(self, pred: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         Prepare predictions for evaluation against ground truth.
 
         Args:
             pred (Dict[str, torch.Tensor]): Post-processed predictions from the model.
-            pbatch (Dict[str, Any]): Prepared batch information.
 
         Returns:
             (Dict[str, torch.Tensor]): Prepared predictions in native space.
         """
-        cls = pred["cls"]
         if self.args.single_cls:
-            cls *= 0
-        # predn = pred.clone()
-        bboxes = ops.scale_boxes(
-            pbatch["imgsz"], pred["bboxes"].clone(), pbatch["ori_shape"], ratio_pad=pbatch["ratio_pad"]
-        )  # native-space pred
-        return {"bboxes": bboxes, "conf": pred["conf"], "cls": cls}
+            pred["cls"] *= 0
+        return pred
 
     def update_metrics(self, preds: List[Dict[str, torch.Tensor]], batch: Dict[str, Any]) -> None:
         """
@@ -187,12 +187,10 @@ class DetectionValidator(BaseValidator):
             pbatch = self._prepare_batch(si, batch)
             if self.args.single_cls or self.args.single_cls_val:
                 pred["cls"] = 0
-            predn = self._prepare_pred(pred, pbatch)
+            predn = self._prepare_pred(pred)
 
             cls = pbatch["cls"].cpu().numpy()
             no_pred = len(predn["cls"]) == 0
-            if no_pred and len(cls) == 0:
-                continue
             self.metrics.update_stats(
                 {
                     **self._process_batch(predn, pbatch),
@@ -205,19 +203,21 @@ class DetectionValidator(BaseValidator):
             # Evaluate
             if self.args.plots:
                 self.confusion_matrix.process_batch(predn, pbatch, conf=self.args.conf)
+                if self.args.visualize:
+                    self.confusion_matrix.plot_matches(batch["img"][si], pbatch["im_file"], self.save_dir)
 
             if no_pred:
                 continue
 
             # Save
             if self.args.save_json:
-                self.pred_to_json(predn, batch["im_file"][si])
+                self.pred_to_json(predn, pbatch)
             if self.args.save_txt:
                 self.save_one_txt(
                     predn,
                     self.args.save_conf,
                     pbatch["ori_shape"],
-                    self.save_dir / "labels" / f"{Path(batch['im_file'][si]).stem}.txt",
+                    self.save_dir / "labels" / f"{Path(pbatch['im_file']).stem}.txt",
                 )
 
     def finalize_metrics(self) -> None:
@@ -227,6 +227,7 @@ class DetectionValidator(BaseValidator):
                 self.confusion_matrix.plot(save_dir=self.save_dir, normalize=normalize, on_plot=self.on_plot)
         self.metrics.speed = self.speed
         self.metrics.confusion_matrix = self.confusion_matrix
+        self.metrics.save_dir = self.save_dir
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -367,18 +368,24 @@ class DetectionValidator(BaseValidator):
             boxes=torch.cat([predn["bboxes"], predn["conf"].unsqueeze(-1), predn["cls"].unsqueeze(-1)], dim=1),
         ).save_txt(file, save_conf=save_conf)
 
-    def pred_to_json(self, predn: Dict[str, torch.Tensor], filename: str) -> None:
+    def pred_to_json(self, predn: Dict[str, torch.Tensor], pbatch: Dict[str, Any]) -> None:
         """
         Serialize YOLO predictions to COCO json format.
 
         Args:
             predn (Dict[str, torch.Tensor]): Predictions dictionary containing 'bboxes', 'conf', and 'cls' keys
                 with bounding box coordinates, confidence scores, and class predictions.
-            filename (str): Image filename.
+            pbatch (Dict[str, Any]): Batch dictionary containing 'imgsz', 'ori_shape', 'ratio_pad', and 'im_file'.
         """
-        stem = Path(filename).stem
+        stem = Path(pbatch["im_file"]).stem
         image_id = int(stem) if stem.isnumeric() else stem
-        box = ops.xyxy2xywh(predn["bboxes"])  # xywh
+        box = ops.scale_boxes(
+            pbatch["imgsz"],
+            predn["bboxes"].clone(),
+            pbatch["ori_shape"],
+            ratio_pad=pbatch["ratio_pad"],
+        )
+        box = ops.xyxy2xywh(box)  # xywh
         box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
         for b, s, c in zip(box.tolist(), predn["conf"].tolist(), predn["cls"].tolist()):
             self.jdict.append(
@@ -400,47 +407,73 @@ class DetectionValidator(BaseValidator):
         Returns:
             (Dict[str, Any]): Updated statistics dictionary with COCO/LVIS evaluation results.
         """
+        pred_json = self.save_dir / "predictions.json"  # predictions
+        anno_json = (
+            self.data["path"]
+            / "annotations"
+            / ("instances_val2017.json" if self.is_coco else f"lvis_v1_{self.args.split}.json")
+        )  # annotations
+        return self.coco_evaluate(stats, pred_json, anno_json)
+
+    def coco_evaluate(
+        self,
+        stats: Dict[str, Any],
+        pred_json: str,
+        anno_json: str,
+        iou_types: Union[str, List[str]] = "bbox",
+        suffix: Union[str, List[str]] = "Box",
+    ) -> Dict[str, Any]:
+        """
+        Evaluate COCO/LVIS metrics using faster-coco-eval library.
+
+        Performs evaluation using the faster-coco-eval library to compute mAP metrics
+        for object detection. Updates the provided stats dictionary with computed metrics
+        including mAP50, mAP50-95, and LVIS-specific metrics if applicable.
+
+        Args:
+            stats (Dict[str, Any]): Dictionary to store computed metrics and statistics.
+            pred_json (str | Path]): Path to JSON file containing predictions in COCO format.
+            anno_json (str | Path]): Path to JSON file containing ground truth annotations in COCO format.
+            iou_types (str | List[str]]): IoU type(s) for evaluation. Can be single string or list of strings.
+                Common values include "bbox", "segm", "keypoints". Defaults to "bbox".
+            suffix (str | List[str]]): Suffix to append to metric names in stats dictionary. Should correspond
+                to iou_types if multiple types provided. Defaults to "Box".
+
+        Returns:
+            (Dict[str, Any]): Updated stats dictionary containing the computed COCO/LVIS evaluation metrics.
+        """
         if self.args.save_json and (self.is_coco or self.is_lvis) and len(self.jdict):
-            pred_json = self.save_dir / "predictions.json"  # predictions
-            anno_json = (
-                self.data["path"]
-                / "annotations"
-                / ("instances_val2017.json" if self.is_coco else f"lvis_v1_{self.args.split}.json")
-            )  # annotations
-            pkg = "pycocotools" if self.is_coco else "lvis"
-            LOGGER.info(f"\nEvaluating {pkg} mAP using {pred_json} and {anno_json}...")
-            try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
+            LOGGER.info(f"\nEvaluating faster-coco-eval mAP using {pred_json} and {anno_json}...")
+            try:
                 for x in pred_json, anno_json:
                     assert x.is_file(), f"{x} file not found"
-                check_requirements("pycocotools>=2.0.6" if self.is_coco else "lvis>=0.5.3")
-                if self.is_coco:
-                    from pycocotools.coco import COCO  # noqa
-                    from pycocotools.cocoeval import COCOeval  # noqa
+                iou_types = [iou_types] if isinstance(iou_types, str) else iou_types
+                suffix = [suffix] if isinstance(suffix, str) else suffix
+                check_requirements("faster-coco-eval>=1.6.7")
+                from faster_coco_eval import COCO, COCOeval_faster
 
-                    anno = COCO(str(anno_json))  # init annotations api
-                    pred = anno.loadRes(str(pred_json))  # init predictions api (must pass string, not Path)
-                    val = COCOeval(anno, pred, "bbox")
-                else:
-                    from lvis import LVIS, LVISEval
+                anno = COCO(anno_json)
+                pred = anno.loadRes(pred_json)
+                for i, iou_type in enumerate(iou_types):
+                    val = COCOeval_faster(
+                        anno, pred, iouType=iou_type, lvis_style=self.is_lvis, print_function=LOGGER.info
+                    )
+                    val.params.imgIds = [int(Path(x).stem) for x in self.dataloader.dataset.im_files]  # images to eval
+                    val.evaluate()
+                    val.accumulate()
+                    val.summarize()
 
-                    anno = LVIS(str(anno_json))  # init annotations api
-                    pred = anno._load_json(str(pred_json))  # init predictions api (must pass string, not Path)
-                    val = LVISEval(anno, pred, "bbox")
-                val.params.imgIds = [int(Path(x).stem) for x in self.dataloader.dataset.im_files]  # images to eval
-                val.evaluate()
-                val.accumulate()
-                val.summarize()
+                    # update mAP50-95 and mAP50
+                    stats[f"metrics/mAP50({suffix[i][0]})"] = val.stats_as_dict["AP_50"]
+                    stats[f"metrics/mAP50-95({suffix[i][0]})"] = val.stats_as_dict["AP_all"]
+
+                    if self.is_lvis:
+                        stats[f"metrics/APr({suffix[i][0]})"] = val.stats_as_dict["APr"]
+                        stats[f"metrics/APc({suffix[i][0]})"] = val.stats_as_dict["APc"]
+                        stats[f"metrics/APf({suffix[i][0]})"] = val.stats_as_dict["APf"]
+
                 if self.is_lvis:
-                    val.print_results()  # explicitly call print_results
-                # update mAP50-95 and mAP50
-                stats[self.metrics.keys[-1]], stats[self.metrics.keys[-2]] = (
-                    val.stats[:2] if self.is_coco else [val.results["AP"], val.results["AP50"]]
-                )
-                if self.is_lvis:
-                    stats["metrics/APr(B)"] = val.results["APr"]
-                    stats["metrics/APc(B)"] = val.results["APc"]
-                    stats["metrics/APf(B)"] = val.results["APf"]
-                    stats["fitness"] = val.results["AP"]
+                    stats["fitness"] = stats["metrics/mAP50-95(B)"]  # always use box mAP50-95 for fitness
             except Exception as e:
-                LOGGER.warning(f"{pkg} unable to run: {e}")
+                LOGGER.warning(f"faster-coco-eval unable to run: {e}")
         return stats
