@@ -1,0 +1,33 @@
+# Lightweight YOLO11n OBB model without P3/8 head
+# Lower backbone channels and reduced block depth
+
+nc: 80  # number of classes
+
+scales:
+  n: [0.5, 0.5, 512]  # Lower depth, width, max_channels
+
+# Backbone (reduced channels and fewer repeats)
+backbone:
+  - [-1, 1, Conv, [32, 3, 2]]          # 0 - P1/2
+  - [-1, 1, Conv, [64, 3, 2]]          # 1 - P2/4
+  - [-1, 1, C3k2, [96, False, 0.25]]   # 2
+  - [-1, 1, Conv, [96, 3, 2]]          # 3 - P3/8
+  - [-1, 1, C3k2, [128, False, 0.25]]  # 4
+  - [-1, 1, Conv, [128, 3, 2]]         # 5 - P4/16
+  - [-1, 1, C3k2, [128, True]]         # 6
+  - [-1, 1, Conv, [256, 3, 2]]         # 7 - P5/32
+  - [-1, 1, C3k2, [256, True]]         # 8
+  - [-1, 1, SPPF, [256, 5]]            # 9
+  - [-1, 1, C2PSA, [256]]              # 10
+
+# Head (no P3/8, only P4 & P5)
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 11
+  - [[-1, 6], 1, Concat, [1]]                  # 12
+  - [-1, 1, C3k2, [128, False]]                # 13 (P4/16)
+
+  - [-1, 1, Conv, [128, 3, 2]]                 # 14
+  - [[-1, 10], 1, Concat, [1]]                 # 15
+  - [-1, 1, C3k2, [256, True]]                 # 16 (P5/32)
+
+  - [[13, 16], 1, OBB, [nc, 1]]                # 17 Detect(P4, P5)
