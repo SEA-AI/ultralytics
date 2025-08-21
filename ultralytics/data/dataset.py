@@ -222,7 +222,7 @@ class YOLODataset(BaseDataset):
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
             transforms = Compose(
-                [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False, fill_value=hyp.fill_value)]
+                [LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False, padding_value=hyp.fill_value)]
             )
         transforms.append(
             Format(

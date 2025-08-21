@@ -88,5 +88,5 @@ class RTDETRPredictor(BasePredictor):
         Returns:
             (list): List of pre-transformed images ready for model inference.
         """
-        letterbox = LetterBox(self.imgsz, auto=False, scale_fill=True)
+        letterbox = LetterBox(self.imgsz, auto=False, scale_fill=True, padding_value=self.args.fill_value)
         return [letterbox(image=x) for x in im]

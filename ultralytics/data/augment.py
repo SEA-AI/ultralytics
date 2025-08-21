@@ -1626,7 +1626,8 @@ class LetterBox:
         scaleup: bool = True,
         center: bool = True,
         stride: int = 32,
-        fill_value: int = 114,
+        padding_value: int = 114,
+        interpolation: int = cv2.INTER_LINEAR,
     ):
         """
         Initialize LetterBox object for resizing and padding images.
@@ -1641,7 +1642,8 @@ class LetterBox:
             scaleup (bool): If True, allow scaling up. If False, only scale down.
             center (bool): If True, center the placed image. If False, place image in top-left corner.
             stride (int): Stride of the model (e.g., 32 for YOLOv5).
-            fill_value (int): Value to use for filling the border. Default is 114.
+            padding_value (int): Value for padding the image. Default is 114.
+            interpolation (int): Interpolation method for resizing. Default is cv2.INTER_LINEAR.
 
         Attributes:
             new_shape (Tuple[int, int]): Target size for the resized image.
@@ -1649,6 +1651,8 @@ class LetterBox:
             scale_fill (bool): Flag for stretching image without padding.
             scaleup (bool): Flag for allowing upscaling.
             stride (int): Stride value for ensuring image size is divisible by stride.
+            padding_value (int): Value used for padding the image.
+            interpolation (int): Interpolation method used for resizing.
 
         Examples:
             >>> letterbox = LetterBox(new_shape=(640, 640), auto=False, scale_fill=False, scaleup=True, stride=32)
@@ -1660,7 +1664,8 @@ class LetterBox:
         self.scaleup = scaleup
         self.stride = stride
         self.center = center  # Put the image in the middle or top-left
-        self.fill_value = fill_value
+        self.padding_value = padding_value
+        self.interpolation = interpolation
 
     def __call__(self, labels: Dict[str, Any] = None, image: np.ndarray = None) -> Union[Dict[str, Any], np.ndarray]:
         """
@@ -1713,7 +1718,7 @@ class LetterBox:
             dh /= 2
 
         if shape[::-1] != new_unpad:  # resize
-            img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+            img = cv2.resize(img, new_unpad, interpolation=self.interpolation)
             if img.ndim == 2:
                 img = img[..., None]
 
@@ -1721,10 +1726,11 @@ class LetterBox:
         left, right = int(round(dw - 0.1)) if self.center else 0, int(round(dw + 0.1))
         h, w, c = img.shape
         if c == 3:
-            fill_value = (self.fill_value,) * 3 if isinstance(self.fill_value, int) else self.fill_value
-            img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=fill_value)
+            img = cv2.copyMakeBorder(
+                img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(self.padding_value,) * 3
+            )
         else:  # multispectral
-            pad_img = np.full((h + top + bottom, w + left + right, c), fill_value=self.fill_value, dtype=img.dtype)
+            pad_img = np.full((h + top + bottom, w + left + right, c), fill_value=self.padding_value, dtype=img.dtype)
             pad_img[top : top + h, left : left + w] = img
             img = pad_img
 
@@ -2555,7 +2561,7 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         scale=hyp.scale,
         shear=hyp.shear,
         perspective=hyp.perspective,
-        pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz), fill_value=hyp.fill_value),
+        pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz), padding_value=hyp.fill_value),
     )
 
     pre_transform = Compose([mosaic, affine])
