@@ -11,7 +11,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   schedule:
     - cron: "0 8 * * *" # runs at 08:00 UTC every day
   workflow_dispatch:
@@ -56,7 +55,7 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
@@ -111,7 +110,7 @@ jobs:
         model: [yolo11n]
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
@@ -176,7 +175,7 @@ jobs:
             torch: "1.8.0" # min torch version CI https://pypi.org/project/torchvision/
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v6
@@ -216,25 +215,22 @@ jobs:
 
   GPU:
     if: github.repository == 'ultralytics/ultralytics' && (github.event_name != 'workflow_dispatch' || github.event.inputs.gpu == 'true')
-    timeout-minutes: 360
-    runs-on: github-linux-gpu-t4-4-core
+    timeout-minutes: 20
+    runs-on: gpu-latest
     steps:
       - uses: actions/checkout@v5
-      # Disable uv on GitHub runners as not working
-      # - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          activate-environment: true
       - name: Install requirements
         run: |
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          pip install -e . pytest-cov pynvml
-          if [[ "${{ github.event_name }}" =~ ^(schedule|workflow_dispatch)$ ]]; then
-            pip install tensorrt onnxruntime-gpu
-          fi
+          uv pip install -e . pytest-cov nvidia-ml-py
         env:
           PIP_BREAK_SYSTEM_PACKAGES: 1
       - name: Check environment
         run: |
           yolo checks
-          pip list
+          uv pip list
       - name: Pytest tests
         run: |
           slow=""
@@ -423,11 +419,7 @@ jobs:
     if: always()
     steps:
       - name: Check for failure and notify
-        if: >
-          github.repository == 'ultralytics/ultralytics' &&
-          (github.event_name == 'schedule' || github.event_name == 'push') &&
-          github.run_attempt == '1' &&
-          (failure() || cancelled())
+        if: (needs.HUB.result == 'failure' || needs.Benchmarks.result == 'failure' || needs.Tests.result == 'failure' || needs.GPU.result == 'failure' || needs.RaspberryPi.result == 'failure' || needs.NVIDIA_Jetson.result == 'failure' || needs.Conda.result == 'failure' ) && github.repository == 'ultralytics/ultralytics' && (github.event_name == 'schedule' || github.event_name == 'push') && github.run_attempt == '1'
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook-type: incoming-webhook
