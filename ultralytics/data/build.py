@@ -7,6 +7,7 @@ import random
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import numpy as np
 import torch
@@ -180,7 +181,15 @@ def build_grounding(
     )
 
 
-def build_dataloader(dataset, batch: int, workers: int, shuffle: bool = True, rank: int = -1, drop_last: bool = False):
+def build_dataloader(
+    dataset,
+    batch: int,
+    workers: int,
+    shuffle: bool = True,
+    rank: int = -1,
+    drop_last: bool = False,
+    pin_memory: bool = True,
+):
     """
     Create and return an InfiniteDataLoader or DataLoader for training or validation.
 
@@ -191,6 +200,7 @@ def build_dataloader(dataset, batch: int, workers: int, shuffle: bool = True, ra
         shuffle (bool, optional): Whether to shuffle the dataset.
         rank (int, optional): Process rank in distributed training. -1 for single-GPU training.
         drop_last (bool, optional): Whether to drop the last incomplete batch.
+        pin_memory (bool, optional): Whether to use pinned memory for dataloader.
 
     Returns:
         (InfiniteDataLoader): A dataloader that can be used for training or validation.
@@ -213,7 +223,7 @@ def build_dataloader(dataset, batch: int, workers: int, shuffle: bool = True, ra
         num_workers=nw,
         sampler=sampler,
         prefetch_factor=4 if nw > 0 else None,  # increase over default 2
-        pin_memory=nd > 0,
+        pin_memory=nd > 0 and pin_memory,
         collate_fn=getattr(dataset, "collate_fn", None),
         worker_init_fn=seed_worker,
         generator=generator,
@@ -247,8 +257,10 @@ def check_source(source):
     if isinstance(source, (str, int, Path)):  # int for local usb camera
         source = str(source)
         source_lower = source.lower()
-        is_file = source_lower.rpartition(".")[-1] in (IMG_FORMATS | VID_FORMATS)
         is_url = source_lower.startswith(("https://", "http://", "rtsp://", "rtmp://", "tcp://"))
+        is_file = (urlsplit(source_lower).path if is_url else source_lower).rpartition(".")[-1] in (
+            IMG_FORMATS | VID_FORMATS
+        )
         webcam = source.isnumeric() or source.endswith(".streams") or (is_url and not is_file)
         screenshot = source_lower == "screen"
         if is_url and is_file:
