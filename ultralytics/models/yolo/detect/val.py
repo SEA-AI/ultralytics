@@ -19,8 +19,7 @@ from ultralytics.utils.plotting import plot_images
 
 
 class DetectionValidator(BaseValidator):
-    """
-    A class extending the BaseValidator class for validation based on a detection model.
+    """A class extending the BaseValidator class for validation based on a detection model.
 
     This class implements validation functionality specific to object detection tasks, including metrics calculation,
     prediction processing, and visualization of results.
@@ -44,8 +43,7 @@ class DetectionValidator(BaseValidator):
     """
 
     def __init__(self, dataloader=None, save_dir=None, args=None, _callbacks=None) -> None:
-        """
-        Initialize detection validator with necessary variables and settings.
+        """Initialize detection validator with necessary variables and settings.
 
         Args:
             dataloader (torch.utils.data.DataLoader, optional): Dataloader to use for validation.
@@ -65,8 +63,7 @@ class DetectionValidator(BaseValidator):
         self.metrics = DetMetrics(args=self.args)
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
-        """
-        Preprocess batch of images for YOLO validation.
+        """Preprocess batch of images for YOLO validation.
 
         Args:
             batch (dict[str, Any]): Batch containing images and annotations.
@@ -81,8 +78,7 @@ class DetectionValidator(BaseValidator):
         return batch
 
     def init_metrics(self, model: torch.nn.Module) -> None:
-        """
-        Initialize evaluation metrics for YOLO detection validation.
+        """Initialize evaluation metrics for YOLO detection validation.
 
         Args:
             model (torch.nn.Module): Model to validate.
@@ -111,15 +107,14 @@ class DetectionValidator(BaseValidator):
         return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", f"mAP{mAP_lb}", f"mAP{mAP_lb}-{mAP_ub})")
 
     def postprocess(self, preds: torch.Tensor) -> list[dict[str, torch.Tensor]]:
-        """
-        Apply Non-maximum suppression to prediction outputs.
+        """Apply Non-maximum suppression to prediction outputs.
 
         Args:
             preds (torch.Tensor): Raw predictions from the model.
 
         Returns:
-            (list[dict[str, torch.Tensor]]): Processed predictions after NMS, where each dict contains
-                'bboxes', 'conf', 'cls', and 'extra' tensors.
+            (list[dict[str, torch.Tensor]]): Processed predictions after NMS, where each dict contains 'bboxes', 'conf',
+                'cls', and 'extra' tensors.
         """
         outputs = nms.non_max_suppression(
             preds,
@@ -135,8 +130,7 @@ class DetectionValidator(BaseValidator):
         return [{"bboxes": x[:, :4], "conf": x[:, 4], "cls": x[:, 5], "extra": x[:, 6:]} for x in outputs]
 
     def _prepare_batch(self, si: int, batch: dict[str, Any]) -> dict[str, Any]:
-        """
-        Prepare a batch of images and annotations for validation.
+        """Prepare a batch of images and annotations for validation.
 
         Args:
             si (int): Batch index.
@@ -163,8 +157,7 @@ class DetectionValidator(BaseValidator):
         }
 
     def _prepare_pred(self, pred: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """
-        Prepare predictions for evaluation against ground truth.
+        """Prepare predictions for evaluation against ground truth.
 
         Args:
             pred (dict[str, torch.Tensor]): Post-processed predictions from the model.
@@ -177,8 +170,7 @@ class DetectionValidator(BaseValidator):
         return pred
 
     def update_metrics(self, preds: list[dict[str, torch.Tensor]], batch: dict[str, Any]) -> None:
-        """
-        Update metrics with new predictions and ground truth.
+        """Update metrics with new predictions and ground truth.
 
         Args:
             preds (list[dict[str, torch.Tensor]]): List of predictions from the model.
@@ -238,7 +230,7 @@ class DetectionValidator(BaseValidator):
             dist.gather_object(self.metrics.stats, gathered_stats, dst=0)
             merged_stats = {key: [] for key in self.metrics.stats.keys()}
             for stats_dict in gathered_stats:
-                for key in merged_stats.keys():
+                for key in merged_stats:
                     merged_stats[key].extend(stats_dict[key])
             gathered_jdict = [None] * dist.get_world_size()
             dist.gather_object(self.jdict, gathered_jdict, dst=0)
@@ -254,8 +246,7 @@ class DetectionValidator(BaseValidator):
             self.metrics.clear_stats()
 
     def get_stats(self) -> dict[str, Any]:
-        """
-        Calculate and return metrics statistics.
+        """Calculate and return metrics statistics.
 
         Returns:
             (dict[str, Any]): Dictionary containing metrics results.
@@ -285,15 +276,15 @@ class DetectionValidator(BaseValidator):
                 )
 
     def _process_batch(self, preds: dict[str, torch.Tensor], batch: dict[str, Any]) -> dict[str, np.ndarray]:
-        """
-        Return correct prediction matrix.
+        """Return correct prediction matrix.
 
         Args:
             preds (dict[str, torch.Tensor]): Dictionary containing prediction data with 'bboxes' and 'cls' keys.
             batch (dict[str, Any]): Batch dictionary containing ground truth data with 'bboxes' and 'cls' keys.
 
         Returns:
-            (dict[str, np.ndarray]): Dictionary containing 'tp' key with correct prediction matrix of shape (N, 10) for 10 IoU levels.
+            (dict[str, np.ndarray]): Dictionary containing 'tp' key with correct prediction matrix of shape (N, 10) for
+                10 IoU levels.
         """
         if batch["cls"].shape[0] == 0 or preds["cls"].shape[0] == 0:
             return {"tp": np.zeros((preds["cls"].shape[0], self.niou), dtype=bool)}
@@ -301,8 +292,7 @@ class DetectionValidator(BaseValidator):
         return {"tp": self.match_predictions(preds["cls"], batch["cls"], iou).cpu().numpy()}
 
     def build_dataset(self, img_path: str, mode: str = "val", batch: int | None = None) -> torch.utils.data.Dataset:
-        """
-        Build YOLO Dataset.
+        """Build YOLO Dataset.
 
         Args:
             img_path (str): Path to the folder containing images.
@@ -315,8 +305,7 @@ class DetectionValidator(BaseValidator):
         return build_yolo_dataset(self.args, img_path, batch, self.data, mode=mode, stride=self.stride)
 
     def get_dataloader(self, dataset_path: str, batch_size: int) -> torch.utils.data.DataLoader:
-        """
-        Construct and return dataloader.
+        """Construct and return dataloader.
 
         Args:
             dataset_path (str): Path to the dataset.
@@ -337,8 +326,7 @@ class DetectionValidator(BaseValidator):
         )
 
     def plot_val_samples(self, batch: dict[str, Any], ni: int) -> None:
-        """
-        Plot validation image samples.
+        """Plot validation image samples.
 
         Args:
             batch (dict[str, Any]): Batch containing images and annotations.
@@ -355,8 +343,7 @@ class DetectionValidator(BaseValidator):
     def plot_predictions(
         self, batch: dict[str, Any], preds: list[dict[str, torch.Tensor]], ni: int, max_det: int | None = None
     ) -> None:
-        """
-        Plot predicted bounding boxes on input images and save the result.
+        """Plot predicted bounding boxes on input images and save the result.
 
         Args:
             batch (dict[str, Any]): Batch containing images and annotations.
@@ -382,8 +369,7 @@ class DetectionValidator(BaseValidator):
         )  # pred
 
     def save_one_txt(self, predn: dict[str, torch.Tensor], save_conf: bool, shape: tuple[int, int], file: Path) -> None:
-        """
-        Save YOLO detections to a txt file in normalized coordinates in a specific format.
+        """Save YOLO detections to a txt file in normalized coordinates in a specific format.
 
         Args:
             predn (dict[str, torch.Tensor]): Dictionary containing predictions with keys 'bboxes', 'conf', and 'cls'.
@@ -401,12 +387,11 @@ class DetectionValidator(BaseValidator):
         ).save_txt(file, save_conf=save_conf)
 
     def pred_to_json(self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any]) -> None:
-        """
-        Serialize YOLO predictions to COCO json format.
+        """Serialize YOLO predictions to COCO json format.
 
         Args:
-            predn (dict[str, torch.Tensor]): Predictions dictionary containing 'bboxes', 'conf', and 'cls' keys
-                with bounding box coordinates, confidence scores, and class predictions.
+            predn (dict[str, torch.Tensor]): Predictions dictionary containing 'bboxes', 'conf', and 'cls' keys with
+                bounding box coordinates, confidence scores, and class predictions.
             pbatch (dict[str, Any]): Batch dictionary containing 'imgsz', 'ori_shape', 'ratio_pad', and 'im_file'.
 
         Examples:
@@ -447,8 +432,7 @@ class DetectionValidator(BaseValidator):
         }
 
     def eval_json(self, stats: dict[str, Any]) -> dict[str, Any]:
-        """
-        Evaluate YOLO output in JSON format and return performance statistics.
+        """Evaluate YOLO output in JSON format and return performance statistics.
 
         Args:
             stats (dict[str, Any]): Current statistics dictionary.
@@ -472,21 +456,20 @@ class DetectionValidator(BaseValidator):
         iou_types: str | list[str] = "bbox",
         suffix: str | list[str] = "Box",
     ) -> dict[str, Any]:
-        """
-        Evaluate COCO/LVIS metrics using faster-coco-eval library.
+        """Evaluate COCO/LVIS metrics using faster-coco-eval library.
 
-        Performs evaluation using the faster-coco-eval library to compute mAP metrics
-        for object detection. Updates the provided stats dictionary with computed metrics
-        including mAP50, mAP50-95, and LVIS-specific metrics if applicable.
+        Performs evaluation using the faster-coco-eval library to compute mAP metrics for object detection. Updates the
+        provided stats dictionary with computed metrics including mAP50, mAP50-95, and LVIS-specific metrics if
+        applicable.
 
         Args:
             stats (dict[str, Any]): Dictionary to store computed metrics and statistics.
             pred_json (str | Path]): Path to JSON file containing predictions in COCO format.
             anno_json (str | Path]): Path to JSON file containing ground truth annotations in COCO format.
-            iou_types (str | list[str]]): IoU type(s) for evaluation. Can be single string or list of strings.
-                Common values include "bbox", "segm", "keypoints". Defaults to "bbox".
-            suffix (str | list[str]]): Suffix to append to metric names in stats dictionary. Should correspond
-                to iou_types if multiple types provided. Defaults to "Box".
+            iou_types (str | list[str]]): IoU type(s) for evaluation. Can be single string or list of strings. Common
+                values include "bbox", "segm", "keypoints". Defaults to "bbox".
+            suffix (str | list[str]]): Suffix to append to metric names in stats dictionary. Should correspond to
+                iou_types if multiple types provided. Defaults to "Box".
 
         Returns:
             (dict[str, Any]): Updated stats dictionary containing the computed COCO/LVIS evaluation metrics.
