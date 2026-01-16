@@ -37,7 +37,7 @@ class DetectionValidator(BaseValidator):
 
     Examples:
         >>> from ultralytics.models.yolo.detect import DetectionValidator
-        >>> args = dict(model="yolo11n.pt", data="coco8.yaml")
+        >>> args = dict(model="yolo26n.pt", data="coco8.yaml")
         >>> validator = DetectionValidator(args=args)
         >>> validator()
     """
@@ -104,7 +104,15 @@ class DetectionValidator(BaseValidator):
         """Return a formatted string summarizing class metrics of YOLO model."""
         mAP_lb = f"{int(self.args.mAP_lb * 100):02d}"
         mAP_ub = f"{int(self.args.mAP_ub * 100):02d}"
-        return ("%22s" + "%11s" * 6) % ("Class", "Images", "Instances", "Box(P", "R", f"mAP{mAP_lb}", f"mAP{mAP_lb}-{mAP_ub})")
+        return ("%22s" + "%11s" * 6) % (
+            "Class",
+            "Images",
+            "Instances",
+            "Box(P",
+            "R",
+            f"mAP{mAP_lb}",
+            f"mAP{mAP_lb}-{mAP_ub})",
+        )
 
     def postprocess(self, preds: torch.Tensor) -> list[dict[str, torch.Tensor]]:
         """Apply Non-maximum suppression to prediction outputs.
@@ -476,7 +484,7 @@ class DetectionValidator(BaseValidator):
         """
         mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
         mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
-        
+
         if self.args.save_json and (self.is_coco or self.is_lvis) and len(self.jdict):
             LOGGER.info(f"\nEvaluating faster-coco-eval mAP using {pred_json} and {anno_json}...")
             try:
@@ -501,6 +509,12 @@ class DetectionValidator(BaseValidator):
                     # update mAP50-95 and mAP50
                     stats[f"metrics/mAP{mAP_lb}({suffix[i][0]})"] = val.stats_as_dict["AP_50"]
                     stats[f"metrics/mAP{mAP_lb}-{mAP_ub}({suffix[i][0]})"] = val.stats_as_dict["AP_all"]
+                    # record mAP for small, medium, large objects as well
+                    stats["metrics/mAP_small(B)"] = val.stats_as_dict["AP_small"]
+                    stats["metrics/mAP_medium(B)"] = val.stats_as_dict["AP_medium"]
+                    stats["metrics/mAP_large(B)"] = val.stats_as_dict["AP_large"]
+                    # update fitness
+                    stats["fitness"] = 0.9 * val.stats_as_dict["AP_all"] + 0.1 * val.stats_as_dict["AP_50"]
 
                     if self.is_lvis:
                         stats[f"metrics/APr({suffix[i][0]})"] = val.stats_as_dict["APr"]
