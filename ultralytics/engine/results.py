@@ -618,9 +618,12 @@ class Results(SimpleClass, DataExportMixin):
             >>> # Or with custom plot arguments
             >>> for result in results:
             >>>     result.save("annotated_image.jpg", conf=False, line_width=2)
+            >>> # Directory will be created automatically if it does not exist
+            >>> result.save("path/to/annotated_image.jpg")
         """
         if not filename:
             filename = f"results_{Path(self.path).name}"
+        Path(filename).absolute().parent.mkdir(parents=True, exist_ok=True)
         self.plot(save=True, filename=filename, *args, **kwargs)
         return filename
 
@@ -803,12 +806,17 @@ class Results(SimpleClass, DataExportMixin):
                     "y": (self.masks.xy[i][:, 1] / h).round(decimals).tolist(),
                 }
             if self.keypoints is not None:
-                x, y, visible = self.keypoints[i].data[0].cpu().unbind(dim=1)  # torch Tensor
+                kpt = self.keypoints[i]
+                if kpt.has_visible:
+                    x, y, visible = kpt.data[0].cpu().unbind(dim=1)
+                else:
+                    x, y = kpt.data[0].cpu().unbind(dim=1)
                 result["keypoints"] = {
-                    "x": (x / w).numpy().round(decimals).tolist(),  # decimals named argument required
+                    "x": (x / w).numpy().round(decimals).tolist(),
                     "y": (y / h).numpy().round(decimals).tolist(),
-                    "visible": visible.numpy().round(decimals).tolist(),
                 }
+                if kpt.has_visible:
+                    result["keypoints"]["visible"] = visible.numpy().round(decimals).tolist()
             results.append(result)
 
         return results
