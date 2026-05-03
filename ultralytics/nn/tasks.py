@@ -73,8 +73,8 @@ from ultralytics.nn.modules import (
     YOLOESegment26,
     v10Detect,
 )
-from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, WINDOWS, YAML, colorstr, emojis
-from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
+from ultralytics.utils import DEFAULT_CFG_DICT, LOGGER, SETTINGS, WINDOWS, YAML, colorstr, emojis
+from ultralytics.utils.checks import REMOTE_FILE_PREFIXES, check_file, check_requirements, check_suffix, check_yaml
 from ultralytics.utils.loss import (
     E2ELoss,
     PoseLoss26,
@@ -436,7 +436,7 @@ class DetectionModel(BaseModel):
         """Set attributes of the model head (last layer).
 
         Args:
-            **kwargs: Arbitrary keyword arguments representing attributes to set.
+            **kwargs (Any): Arbitrary keyword arguments representing attributes to set.
         """
         head = self.model[-1]
         for k, v in kwargs.items():
@@ -1512,6 +1512,8 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
         (torch.nn.Module): Loaded model.
         (dict): Model checkpoint dictionary.
     """
+    if str(weight).lower().startswith(REMOTE_FILE_PREFIXES):
+        weight = check_file(weight, download_dir=SETTINGS["weights_dir"])
     ckpt, weight = torch_safe_load(weight)  # load ckpt
     args = {**DEFAULT_CFG_DICT, **(ckpt.get("train_args", {}))}  # combine model and default args, preferring model args
     model = (ckpt.get("ema") or ckpt["model"]).float()  # FP32 model
