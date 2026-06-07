@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from ultralytics import __version__
+from ultralytics import __brand__, __version__
 from ultralytics.utils import (
     ASSETS,
     DEFAULT_CFG,
@@ -904,7 +904,7 @@ def entrypoint(debug: str = "") -> None:
 
     special = {
         "checks": checks.collect_system_info,
-        "version": lambda: LOGGER.info(__version__),
+        "version": lambda: LOGGER.info(f"{__version__} {__brand__}"),
         "settings": lambda: handle_yolo_settings(args[1:]),
         "cfg": lambda: YAML.print(DEFAULT_CFG_PATH),
         "hub": lambda: handle_yolo_hub(args[1:]),

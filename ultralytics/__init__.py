@@ -1,6 +1,7 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
 __version__ = "8.4.61"
+__brand__ = "SEA.AI 🔱"
 
 import importlib
 import os
@@ -20,6 +21,7 @@ MODELS = ("YOLO", "YOLOWorld", "YOLOE", "NAS", "SAM", "FastSAM", "RTDETR")
 
 __all__ = (
     "__version__",
+    "__brand__",
     "ASSETS",
     *MODELS,
     "checks",
