@@ -7,7 +7,7 @@ import math
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -1114,7 +1114,7 @@ class DetMetrics(SimpleClass, DataExportMixin):
         summary: Generate a summarized representation of per-class detection metrics as a list of dictionaries.
     """
 
-    def __init__(self, names: dict[int, str] = {}, args: Optional[Any] = None) -> None:
+    def __init__(self, names: dict[int, str] = {}, args: Any | None = None) -> None:
         """Initialize a DetMetrics instance with class names.
 
         Args:
@@ -1184,7 +1184,7 @@ class DetMetrics(SimpleClass, DataExportMixin):
         self.box.clear_image_metrics()
 
     @property
-    def keys(self) -> List[str]:
+    def keys(self) -> list[str]:
         """Returns a list of keys for accessing specific metrics."""
         return [
             "metrics/precision(B)",

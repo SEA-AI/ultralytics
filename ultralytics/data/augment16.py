@@ -1,18 +1,20 @@
+from __future__ import annotations
+
 import random
-from typing import Sequence, Union, Tuple, cast
+from collections.abc import Sequence
+from typing import cast
 
 import albumentations as A
 import cv2
 import numpy as np
-from albumentations.core.transforms_interface import (
-    ImageOnlyTransform,
-    BaseTransformInitSchema,
-)
-
 from albumentations.core.pydantic import (
     NonNegativeFloatRangeType,
     OnePlusFloatRangeType,
     ZeroOneRangeType,
+)
+from albumentations.core.transforms_interface import (
+    BaseTransformInitSchema,
+    ImageOnlyTransform,
 )
 
 
@@ -54,20 +56,16 @@ def get_16_to_8_transform(augment):
 
 
 class CLAHE(ImageOnlyTransform):
-    """
-    Apply Contrast Limited Adaptive Histogram Equalization to the input image.
+    """Apply Contrast Limited Adaptive Histogram Equalization to the input image.
 
     Args:
         clip_limit (float or (float, float)): upper threshold value for contrast limiting.
-            If clip_limit is a single float value, the range will be (1, clip_limit). Default: (1, 4).
-        tile_grid_size ((int, int)): size of grid for histogram equalization. Default: (8, 8).
-            If (0, 0), optimal value will be calculated based on image size.
+        If clip_limit is a single float value, the range will be (1, clip_limit). Default: (1, 4).
+        tile_grid_size ((int, int)): size of grid for histogram equalization. Default: (8, 8). If (0, 0), optimal value
+            will be calculated based on image size.
         p (float): probability of applying the transform. Default: 0.5.
-
-    Targets:
-        image
-
-    Image types:
+        Targets: image
+        Image types:
         uint8, uint16
     """
 
@@ -77,14 +75,14 @@ class CLAHE(ImageOnlyTransform):
 
     def __init__(
         self,
-        clip_limit: Union[float, Sequence[float]] = 4.0,
-        tile_grid_size: Union[float, Sequence[float]] = (8, 8),
+        clip_limit: float | Sequence[float] = 4.0,
+        tile_grid_size: float | Sequence[float] = (8, 8),
         always_apply=False,
         p=0.5,
     ):
         super().__init__(p=p, always_apply=always_apply)
-        self.clip_limit = cast(Tuple[float, float], clip_limit)
-        self.tile_grid_size = cast(Tuple[int, int], tile_grid_size)
+        self.clip_limit = cast(tuple[float, float], clip_limit)
+        self.tile_grid_size = cast(tuple[int, int], tile_grid_size)
 
     def apply(self, img, clip_limit=2, **params):
         if self.tile_grid_size == (0, 0):
@@ -104,8 +102,7 @@ class CLAHE(ImageOnlyTransform):
 
 
 class NormalizeMinMax(ImageOnlyTransform):
-    """
-    Normalize image to 0-255 range using min-max scaling.
+    """Normalize image to 0-255 range using min-max scaling.
 
     Targets:
         image
@@ -126,19 +123,15 @@ class NormalizeMinMax(ImageOnlyTransform):
 
 
 class Clip(ImageOnlyTransform):
-    """
-    Clip image to a certain range.
+    """Clip image to a certain range.
 
     Args:
         lower_limit (float or (float, float)): lower limit value for clipping.
-            If lower_limit is a single float value, the range will be (0, lower_limit). Default: (0.1, 0.2).
+        If lower_limit is a single float value, the range will be (0, lower_limit). Default: (0.1, 0.2).
         upper_limit (float or (float, float)): upper limit value for clipping.
-            If upper_limit is a single float value, the range will be (upper_limit, 1). Default: (0.8, 0.9).
-
-    Targets:
-        image
-
-    Image types:
+        If upper_limit is a single float value, the range will be (upper_limit, 1). Default: (0.8, 0.9).
+        Targets: image
+        Image types:
         uint8, uint16
     """
 
@@ -148,14 +141,14 @@ class Clip(ImageOnlyTransform):
 
     def __init__(
         self,
-        lower_limit: Union[float, Sequence[float]] = (0.1, 0.2),
-        upper_limit: Union[float, Sequence[float]] = (0.8, 0.9),
+        lower_limit: float | Sequence[float] = (0.1, 0.2),
+        upper_limit: float | Sequence[float] = (0.8, 0.9),
         always_apply=False,
         p=0.5,
     ):
         super().__init__(p=p, always_apply=always_apply)
-        self.lower_limit = cast(Tuple[float, float], lower_limit)
-        self.upper_limit = cast(Tuple[float, float], upper_limit)
+        self.lower_limit = cast(tuple[float, float], lower_limit)
+        self.upper_limit = cast(tuple[float, float], upper_limit)
 
     def apply(self, img, lower_limit=0.1, upper_limit=0.9, **params):
         max_val = np.iinfo(img.dtype).max

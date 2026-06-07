@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import random
-from copy import copy
 from typing import Any
 
 import numpy as np
@@ -203,7 +202,9 @@ class DetectionTrainer(BaseTrainer):
         keys = [f"{prefix}/{x}" for x in self.loss_names]
         if loss_items is not None:
             loss_items = [round(float(x), 5) for x in loss_items]  # convert tensors to 5 decimal place floats
-            loss_items[1] = 0 if (prefix == "val" and self.args.single_cls_val) else loss_items[1] # if single_cls_val, set cls_loss to 0   
+            loss_items[1] = (
+                0 if (prefix == "val" and self.args.single_cls_val) else loss_items[1]
+            )  # if single_cls_val, set cls_loss to 0
             return dict(zip(keys, loss_items))
         else:
             return keys

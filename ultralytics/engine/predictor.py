@@ -200,7 +200,7 @@ class BasePredictor:
             and self.args.rect
             and (self.model.format == "pt" or (getattr(self.model, "dynamic", False) and self.model.format != "imx")),
             stride=self.model.stride,
-            padding_value=self.args.fill_value
+            padding_value=self.args.fill_value,
         )
         return [letterbox(image=x) for x in im]
 
