@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import random
-from copy import copy
 from typing import Any
 
 import numpy as np
@@ -145,14 +144,14 @@ class DetectionTrainer(BaseTrainer):
         self.model.nc = self.data["nc"]  # attach number of classes to model
         self.model.names = self.data["names"]  # attach class names to model
         self.model.args = self.args  # attach hyperparameters to model
-        if getattr(self.model, "end2end"):
+        if getattr(self.model, "end2end", False):
             self.model.set_head_attr(max_det=self.args.max_det)
 
     def set_class_weights(self):
         """Compute and set class weights for handling class imbalance.
 
         Class weights are computed based on inverse class frequency in the training dataset,
-        raised to the power of cls_pw (0 < cls_pw <= 1 dampens, cls_pw > 1 amplifies).
+        raised to the power of cls_pw (0 < cls_pw <= 1 dampens; values are restricted to the range [0, 1]).
         Final weights are normalized so their mean equals 1.0.
         """
         assert 0 <= self.args.cls_pw <= 1.0, "cls_pw must be in the range [0, 1]"
@@ -203,7 +202,9 @@ class DetectionTrainer(BaseTrainer):
         keys = [f"{prefix}/{x}" for x in self.loss_names]
         if loss_items is not None:
             loss_items = [round(float(x), 5) for x in loss_items]  # convert tensors to 5 decimal place floats
-            loss_items[1] = 0 if (prefix == "val" and self.args.single_cls_val) else loss_items[1] # if single_cls_val, set cls_loss to 0   
+            loss_items[1] = (
+                0 if (prefix == "val" and self.args.single_cls_val) else loss_items[1]
+            )  # if single_cls_val, set cls_loss to 0
             return dict(zip(keys, loss_items))
         else:
             return keys

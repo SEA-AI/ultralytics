@@ -11,7 +11,6 @@ from typing import Any
 
 import cv2
 import numpy as np
-from PIL import Image
 import torch
 from PIL import Image
 
@@ -41,7 +40,10 @@ def imread(filename: str, flags: int = cv2.IMREAD_COLOR, augment: bool = False) 
             from ultralytics.data.augment16 import convert_16bit_to_8bit
 
             return convert_16bit_to_8bit(np.array(im), augment=augment)  # GRAY as BGR
-    file_bytes = np.fromfile(filename, np.uint8)
+    try:
+        file_bytes = np.fromfile(filename, np.uint8)
+    except (FileNotFoundError, OSError):
+        return None
     if filename.endswith((".tiff", ".tif")):
         success, frames = cv2.imdecodemulti(file_bytes, cv2.IMREAD_UNCHANGED)
         if success:
