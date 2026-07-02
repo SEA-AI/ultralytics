@@ -896,7 +896,7 @@ def plot_images(
                         obb_boxes = obb_boxes[top_idx : top_idx + 1]
                         classes = classes[top_idx : top_idx + 1]
                         conf = conf[top_idx : top_idx + 1]
-                    lines = ops.xywhr2line(obb_boxes)
+                    lines = ops.xywhr2line(obb_boxes, canonical=True)
                     for j, line in enumerate(lines.astype(np.int64).tolist()):
                         c = classes[j]
                         color = colors(c)
