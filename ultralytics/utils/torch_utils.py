@@ -211,6 +211,7 @@ def select_device(device="", newline=False, verbose=True):
 
     cpu = device == "cpu"
     mps = device in {"mps", "mps:0"}  # Apple Metal Performance Shaders (MPS)
+    remap = not torch.cuda.is_initialized()  # CUDA_VISIBLE_DEVICES remapping only applies before CUDA init
     if cpu or mps:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""  # force torch.cuda.is_available() = False
     elif device:  # non-cpu device requested
@@ -220,7 +221,12 @@ def select_device(device="", newline=False, verbose=True):
             device = ",".join([x for x in device.split(",") if x])  # remove sequential commas, i.e. "0,,1" -> "0,1"
         visible = os.environ.get("CUDA_VISIBLE_DEVICES", None)
         os.environ["CUDA_VISIBLE_DEVICES"] = device  # set environment variable - must be before assert is_available()
-        if not (torch.cuda.is_available() and torch.cuda.device_count() >= len(device.split(","))):
+        valid = (
+            torch.cuda.device_count() >= len(device.split(","))
+            if remap
+            else all(x.isdigit() and int(x) < torch.cuda.device_count() for x in device.split(","))
+        )
+        if not (torch.cuda.is_available() and valid):
             LOGGER.info(s)
             install = (
                 "See https://pytorch.org/get-started/locally/ for up-to-date torch install instructions if no "
@@ -242,8 +248,8 @@ def select_device(device="", newline=False, verbose=True):
         devices = device.split(",") if device else "0"  # i.e. "0,1" -> ["0", "1"]
         space = " " * len(s)
         for i, d in enumerate(devices):
-            s += f"{'' if i == 0 else space}CUDA:{d} ({get_gpu_info(i)})\n"  # bytes to MB
-        arg = "cuda:0"
+            s += f"{'' if i == 0 else space}CUDA:{d} ({get_gpu_info(i if remap else int(d))})\n"  # bytes to MB
+        arg = "cuda:0" if remap else f"cuda:{devices[0]}"
     elif mps and TORCH_2_0 and torch.backends.mps.is_available():
         # Prefer MPS if available
         s += f"MPS ({get_cpu_info()})\n"
@@ -318,6 +324,8 @@ def fuse_deconv_and_bn(deconv, bn):
         >>> bn = nn.BatchNorm2d(3)
         >>> fused_deconv = fuse_deconv_and_bn(deconv, bn)
     """
+    if isinstance(bn, nn.Identity):  # ConvTranspose(bn=False) leaves bn as nn.Identity, nothing to fuse
+        return deconv.requires_grad_(False)
     # Compute fused weights
     w_deconv = deconv.weight.view(deconv.out_channels, -1)
     w_bn = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
@@ -673,6 +681,9 @@ class ModelEMA:
             updates (int, optional): Initial number of updates.
         """
         self.ema = deepcopy(unwrap_model(model)).eval()  # FP32 EMA
+        if hasattr(self.ema, "teacher_model"):
+            # DistillationModel: strip the teacher so the EMA does not carry a full duplicate copy.
+            self.ema.teacher_model = None
         self.updates = updates  # number of EMA updates
         self.decay = lambda x: decay * (1 - math.exp(-x / tau))  # decay exponential ramp (to help early epochs)
         for p in self.ema.parameters():
@@ -744,6 +755,14 @@ def strip_optimizer(f: str | Path = "best.pt", s: str = "", updates: dict[str, A
     # Update model
     if x.get("ema"):
         x["model"] = x["ema"]  # replace model with EMA
+
+    # Unwrap DistillationModel to save only the student model
+    from ultralytics.nn.distill_model import DistillationModel
+
+    if isinstance(x["model"], DistillationModel):
+        x["model"]._remove_feature_hooks()
+        x["model"] = x["model"].student_model
+
     if hasattr(x["model"], "args"):
         x["model"].args = dict(x["model"].args)  # convert from IterableSimpleNamespace to dict
     if hasattr(x["model"], "criterion"):
