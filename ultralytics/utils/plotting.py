@@ -925,7 +925,9 @@ def plot_images(
                         label = f"{c}" if show_labels else ""
                         label += f" {conf_text}".strip() if show_conf else ""
                         if horizon_lines is not None:
-                            annotator.horizon(horizon_lines[j].astype(np.int64).tolist(), box, label, color, label_on="box")
+                            annotator.horizon(
+                                horizon_lines[j].astype(np.int64).tolist(), box, label, color, label_on="box"
+                            )
                         else:
                             annotator.box_label(box, label, color=color)
 
