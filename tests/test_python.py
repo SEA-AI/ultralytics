@@ -667,6 +667,7 @@ def test_utils_ops():
         xywh2ltwh,
         xywh2xyxy,
         xywhn2xyxy,
+        xywhr2line,
         xywhr2xyxyxyxy,
         xyxy2ltwh,
         xyxy2xywh,
@@ -685,6 +686,26 @@ def test_utils_ops():
     boxes = torch.rand(10, 5)  # xywhr for OBB
     boxes[:, 4] = torch.randn(10) * 30
     torch.allclose(boxes, xyxyxyxy2xywhr(xywhr2xyxyxyxy(boxes)), rtol=1e-3)
+
+    # xywhr2line: canonicalize thin boxes so line follows the long axis
+    horizontal = torch.tensor([[320.0, 240.0, 400.0, 5.0, 0.0]])
+    h_line = xywhr2line(horizontal)[0]
+    assert abs(h_line[0, 1] - h_line[1, 1]) < 1e-3
+    vertical = torch.tensor([[320.0, 240.0, 5.0, 400.0, 0.0]])
+    v_line = xywhr2line(vertical)[0]
+    assert abs(v_line[0, 0] - v_line[1, 0]) < 1e-3
+
+
+def test_horizon_top_conf_index():
+    """Test top-confidence index helper used by horizon plotting."""
+    import numpy as np
+
+    from ultralytics.utils.plotting import top_conf_index
+
+    assert top_conf_index(None) is None
+    assert top_conf_index(np.array([0.5])) is None
+    assert top_conf_index(np.array([0.3, 0.9, 0.1])) == 1
+    assert top_conf_index(torch.tensor([0.2, 0.4, 0.8])) == 2
 
 
 def test_utils_files(tmp_path):
