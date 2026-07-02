@@ -557,13 +557,7 @@ class Results(SimpleClass, DataExportMixin):
                 name = ("" if id is None else f"id:{id} ") + names[c]
                 label = (f"{name} {d_conf:.2f}" if conf else name) if labels else (f"{d_conf:.2f}" if conf else None)
                 color = colors(
-                    c
-                    if color_mode == "class"
-                    else id
-                    if id is not None
-                    else i
-                    if color_mode == "instance"
-                    else None,
+                    c if color_mode == "class" else id if id is not None else i if color_mode == "instance" else None,
                     True,
                 )
                 if horizon and is_obb:
