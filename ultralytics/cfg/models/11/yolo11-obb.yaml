@@ -8,6 +8,7 @@
 nc: 80 # number of classes
 scales: # model compound scaling constants, i.e. 'model=yolo11n-obb.yaml' will call yolo11-obb.yaml with scale 'n'
   # [depth, width, max_channels]
+  p: [0.50, 0.25, 512] # summary: 196 layers, 1583747 parameters, 1583731 gradients, 5.9 GFLOPs
   n: [0.50, 0.25, 1024] # summary: 196 layers, 2695747 parameters, 2695731 gradients, 6.9 GFLOPs
   s: [0.50, 0.50, 1024] # summary: 196 layers, 9744931 parameters, 9744915 gradients, 22.7 GFLOPs
   m: [0.50, 1.00, 512] # summary: 246 layers, 20963523 parameters, 20963507 gradients, 72.2 GFLOPs

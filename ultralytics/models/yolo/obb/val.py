@@ -168,6 +168,18 @@ class OBBValidator(DetectionValidator):
             fname=self.save_dir / f"val_batch{ni}_pred.jpg",
             names=self.names,
             on_plot=self.on_plot,
+            horizon=self.args.horizon,
+        )
+
+    def plot_val_samples(self, batch, ni: int) -> None:
+        """Plot validation image samples with optional horizon-line visualization for OBB."""
+        plot_images(
+            labels=batch,
+            paths=batch["im_file"],
+            fname=self.save_dir / f"val_batch{ni}_labels.jpg",
+            names=self.names,
+            on_plot=self.on_plot,
+            horizon=self.args.horizon,
         )
 
     def pred_to_json(self, predn: dict[str, torch.Tensor], pbatch: dict[str, Any]) -> None:

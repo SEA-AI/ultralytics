@@ -404,6 +404,28 @@ def xywhr2xyxyxyxy(x):
     return stack([pt1, pt2, pt3, pt4], -2)
 
 
+def xywhr2line(x):
+    """Convert batched OBB boxes from [xywh, rotation] to line endpoints through the box center.
+
+    Args:
+        x (np.ndarray | torch.Tensor): Boxes in [cx, cy, w, h, rotation] format with shape (N, 5) or (B, N, 5).
+
+    Returns:
+        (np.ndarray | torch.Tensor): Line endpoints with shape (N, 2, 2) or (B, N, 2, 2) as [[x1, y1], [x2, y2]].
+    """
+    cos, sin, cat, stack = (
+        (torch.cos, torch.sin, torch.cat, torch.stack)
+        if isinstance(x, torch.Tensor)
+        else (np.cos, np.sin, np.concatenate, np.stack)
+    )
+
+    ctr = x[..., :2]
+    w, angle = x[..., 2:3], x[..., 4:5]
+    cos_value, sin_value = cos(angle), sin(angle)
+    vec = cat([w / 2 * cos_value, w / 2 * sin_value], -1)
+    return stack([ctr + vec, ctr - vec], -2)
+
+
 def ltwh2xyxy(x):
     """Convert bounding box from [x1, y1, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right.
 

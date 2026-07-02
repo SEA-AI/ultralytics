@@ -379,6 +379,62 @@ class Annotator:
                     lineType=cv2.LINE_AA,
                 )
 
+    def line_label(self, line, label: str = "", color: tuple = (128, 128, 128), txt_color: tuple = (255, 255, 255)):
+        """Draw a line on an image with an optional label at its midpoint.
+
+        Args:
+            line (list | tuple | torch.Tensor): Line endpoints as [[x1, y1], [x2, y2]].
+            label (str, optional): Text label to display above the line midpoint.
+            color (tuple, optional): Line and label background color.
+            txt_color (tuple, optional): Label text color.
+        """
+        txt_color = self.get_txt_color(color, txt_color)
+        if isinstance(line, torch.Tensor):
+            line = line.tolist()
+
+        p1, p2 = line[0], line[1]
+        mid_x = (p1[0] + p2[0]) / 2
+        mid_y = (p1[1] + p2[1]) / 2
+
+        if self.pil:
+            self.draw.line((tuple(p1), tuple(p2)), fill=color, width=self.lw)
+            if label:
+                w, h = self.font.getsize(label)
+                label_pos = (int(mid_x - w / 2), int(mid_y - h - 5))
+                label_pos = (
+                    max(0, min(label_pos[0], self.im.size[0] - w)),
+                    label_pos[1],
+                )
+                self.draw.rectangle(
+                    (label_pos[0], label_pos[1], label_pos[0] + w + 1, label_pos[1] + h + 1),
+                    fill=color,
+                )
+                self.draw.text(label_pos, label, fill=txt_color, font=self.font)
+        else:
+            p1 = (int(p1[0]), int(p1[1]))
+            p2 = (int(p2[0]), int(p2[1]))
+            cv2.line(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
+            if label:
+                w, h = cv2.getTextSize(label, 0, fontScale=self.sf, thickness=self.tf)[0]
+                h += 3
+                label_p1 = (int(mid_x - w / 2), int(mid_y - 5))
+                label_p1 = (
+                    max(0, min(label_p1[0], self.im.shape[1] - w)),
+                    label_p1[1],
+                )
+                label_p2 = (label_p1[0] + w, label_p1[1] - h)
+                cv2.rectangle(self.im, label_p1, label_p2, color, -1, cv2.LINE_AA)
+                cv2.putText(
+                    self.im,
+                    label,
+                    (label_p1[0], label_p1[1] - 2),
+                    0,
+                    self.sf,
+                    txt_color,
+                    thickness=self.tf,
+                    lineType=cv2.LINE_AA,
+                )
+
     def masks(self, masks, colors, im_gpu: torch.Tensor = None, alpha: float = 0.5, retina_masks: bool = False):
         """Plot masks on image.
 
@@ -727,6 +783,7 @@ def plot_images(
     conf_thres: float = 0.25,
     show_labels: bool = True,
     show_conf: bool = True,
+    horizon: bool = False,
 ) -> np.ndarray | None:
     """Plot image grid with labels, bounding boxes, masks, and keypoints.
 
@@ -744,6 +801,7 @@ def plot_images(
         conf_thres (float): Confidence threshold for displaying detections.
         show_labels (bool): Whether to display class labels.
         show_conf (bool): Whether to display confidence values.
+        horizon (bool): Whether to plot OBB boxes as horizon lines with optional top-confidence filtering.
 
     Returns:
         (np.ndarray | None): Plotted image grid as a numpy array if save is False, None otherwise.
@@ -831,16 +889,39 @@ def plot_images(
                 boxes[..., 0] += x
                 boxes[..., 1] += y
                 is_obb = boxes.shape[-1] == 5  # xywhr
-                boxes = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
-                for j, box in enumerate(boxes.astype(np.int64).tolist()):
-                    c = classes[j]
-                    color = colors(c)
-                    c = names.get(c, c) if names else c
-                    if labels or conf[j] > conf_thres:
-                        conf_text = f"{conf[j]:.1f}" if conf is not None else ""
-                        label = f"{c}" if show_labels else ""
-                        label += f" {conf_text}".strip() if show_conf else ""
-                        annotator.box_label(box, label, color=color)
+                if horizon and is_obb:
+                    obb_boxes = boxes.copy()
+                    if conf is not None and len(conf) > 1:
+                        top_idx = int(np.argmax(conf))
+                        obb_boxes = obb_boxes[top_idx : top_idx + 1]
+                        classes = classes[top_idx : top_idx + 1]
+                        conf = conf[top_idx : top_idx + 1]
+                    lines = ops.xywhr2line(obb_boxes)
+                    for j, line in enumerate(lines.astype(np.int64).tolist()):
+                        c = classes[j]
+                        color = colors(c)
+                        if labels or conf[j] > conf_thres:
+                            annotator.line_label(line, label=None, color=color)
+                    boxes = ops.xywhr2xyxyxyxy(obb_boxes)
+                    for j, box in enumerate(boxes.astype(np.int64).tolist()):
+                        c = classes[j]
+                        c = names.get(c, c) if names else c
+                        if labels or conf[j] > conf_thres:
+                            conf_text = f"{conf[j]:.1f}" if conf is not None else ""
+                            label = f"{c}" if show_labels else ""
+                            label += f" {conf_text}".strip() if show_conf else ""
+                            annotator.box_label(box, label, color=(0, 0, 0))
+                else:
+                    boxes = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
+                    for j, box in enumerate(boxes.astype(np.int64).tolist()):
+                        c = classes[j]
+                        color = colors(c)
+                        c = names.get(c, c) if names else c
+                        if labels or conf[j] > conf_thres:
+                            conf_text = f"{conf[j]:.1f}" if conf is not None else ""
+                            label = f"{c}" if show_labels else ""
+                            label += f" {conf_text}".strip() if show_conf else ""
+                            annotator.box_label(box, label, color=color)
 
             elif len(classes):
                 for c in classes:

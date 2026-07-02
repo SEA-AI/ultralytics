@@ -8,6 +8,7 @@ from pathlib import Path
 from ultralytics.models import yolo
 from ultralytics.nn.tasks import OBBModel
 from ultralytics.utils import DEFAULT_CFG, RANK
+from ultralytics.utils.plotting import plot_images
 
 
 class OBBTrainer(yolo.detect.DetectionTrainer):
@@ -69,6 +70,16 @@ class OBBTrainer(yolo.detect.DetectionTrainer):
             model.load(weights)
 
         return model
+
+    def plot_training_samples(self, batch, ni: int) -> None:
+        """Plot training samples with optional horizon-line visualization for OBB."""
+        plot_images(
+            labels=batch,
+            paths=batch["im_file"],
+            fname=self.save_dir / f"train_batch{ni}.jpg",
+            on_plot=self.on_plot,
+            horizon=self.args.horizon,
+        )
 
     def get_validator(self):
         """Return an instance of OBBValidator for validation of YOLO model."""

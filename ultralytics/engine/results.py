@@ -478,6 +478,7 @@ class Results(SimpleClass, DataExportMixin):
         filename: str | None = None,
         color_mode: str = "class",
         txt_color: tuple[int, int, int] = (255, 255, 255),
+        horizon: bool = False,
     ) -> np.ndarray:
         """Plot detection results on an input BGR image.
 
@@ -500,6 +501,7 @@ class Results(SimpleClass, DataExportMixin):
             filename (str | None): Filename to save image if save is True.
             color_mode (str): Specify the color mode, e.g., 'instance' or 'class'.
             txt_color (tuple[int, int, int]): Text color in BGR format for classification output.
+            horizon (bool): Plot OBB predictions as horizon lines instead of standard rotated boxes.
 
         Returns:
             (np.ndarray | PIL.Image.Image): Annotated image as a NumPy array (BGR) or PIL image (RGB) if `pil=True`.
@@ -554,21 +556,24 @@ class Results(SimpleClass, DataExportMixin):
                 c, d_conf, id = int(d.cls), float(d.conf) if conf else None, int(d.id.item()) if d.is_track else None
                 name = ("" if id is None else f"id:{id} ") + names[c]
                 label = (f"{name} {d_conf:.2f}" if conf else name) if labels else (f"{d_conf:.2f}" if conf else None)
-                box = d.xyxyxyxy.squeeze() if is_obb else d.xyxy.squeeze()
-                annotator.box_label(
-                    box,
-                    label,
-                    color=colors(
-                        c
-                        if color_mode == "class"
-                        else id
-                        if id is not None
-                        else i
-                        if color_mode == "instance"
-                        else None,
-                        True,
-                    ),
+                color = colors(
+                    c
+                    if color_mode == "class"
+                    else id
+                    if id is not None
+                    else i
+                    if color_mode == "instance"
+                    else None,
+                    True,
                 )
+                if horizon and is_obb:
+                    line = ops.xywhr2line(d.xywhr.squeeze())
+                    box = d.xyxyxyxy.reshape(-1, 4, 2).squeeze()
+                    annotator.box_label(box, label, color=(0, 0, 0))
+                    annotator.line_label(line, label, color=color)
+                else:
+                    box = d.xyxyxyxy.squeeze() if is_obb else d.xyxy.squeeze()
+                    annotator.box_label(box, label, color=color)
 
         # Plot Classify results
         if pred_probs is not None and show_probs:
