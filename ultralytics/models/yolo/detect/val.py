@@ -374,6 +374,7 @@ class DetectionValidator(BaseValidator):
             fname=self.save_dir / f"val_batch{ni}_labels.jpg",
             names=self.names,
             on_plot=self.on_plot,
+            horizon=getattr(self.args, "horizon", False),
         )
 
     def plot_predictions(
@@ -402,6 +403,7 @@ class DetectionValidator(BaseValidator):
             fname=self.save_dir / f"val_batch{ni}_pred.jpg",
             names=self.names,
             on_plot=self.on_plot,
+            horizon=getattr(self.args, "horizon", False),
         )  # pred
 
     def save_one_txt(self, predn: dict[str, torch.Tensor], save_conf: bool, shape: tuple[int, int], file: Path) -> None:

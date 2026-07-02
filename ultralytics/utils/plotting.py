@@ -379,6 +379,70 @@ class Annotator:
                     lineType=cv2.LINE_AA,
                 )
 
+    def line_label(self, line, label: str = "", color: tuple = (128, 128, 128), txt_color: tuple = (255, 255, 255)):
+        """Draw a line on an image with an optional label at its midpoint.
+
+        Args:
+            line (list | tuple | torch.Tensor): Line endpoints as [[x1, y1], [x2, y2]].
+            label (str, optional): Text label to display above the line midpoint.
+            color (tuple, optional): Line and label background color.
+            txt_color (tuple, optional): Label text color.
+        """
+        txt_color = self.get_txt_color(color, txt_color)
+        if isinstance(line, torch.Tensor):
+            line = line.tolist()
+
+        p1, p2 = line[0], line[1]
+        mid_x = (p1[0] + p2[0]) / 2
+        mid_y = (p1[1] + p2[1]) / 2
+
+        if self.pil:
+            self.draw.line((tuple(p1), tuple(p2)), fill=color, width=self.lw)
+            if label:
+                w, h = self.font.getsize(label)
+                label_pos = (int(mid_x - w / 2), int(mid_y - h - 5))
+                label_pos = (
+                    max(0, min(label_pos[0], self.im.size[0] - w)),
+                    label_pos[1],
+                )
+                self.draw.rectangle(
+                    (label_pos[0], label_pos[1], label_pos[0] + w + 1, label_pos[1] + h + 1),
+                    fill=color,
+                )
+                self.draw.text(label_pos, label, fill=txt_color, font=self.font)
+        else:
+            p1 = (int(p1[0]), int(p1[1]))
+            p2 = (int(p2[0]), int(p2[1]))
+            cv2.line(self.im, p1, p2, color, thickness=self.lw, lineType=cv2.LINE_AA)
+            if label:
+                w, h = cv2.getTextSize(label, 0, fontScale=self.sf, thickness=self.tf)[0]
+                h += 3
+                label_p1 = (int(mid_x - w / 2), int(mid_y - 5))
+                label_p1 = (
+                    max(0, min(label_p1[0], self.im.shape[1] - w)),
+                    label_p1[1],
+                )
+                label_p2 = (label_p1[0] + w, label_p1[1] - h)
+                cv2.rectangle(self.im, label_p1, label_p2, color, -1, cv2.LINE_AA)
+                cv2.putText(
+                    self.im,
+                    label,
+                    (label_p1[0], label_p1[1] - 2),
+                    0,
+                    self.sf,
+                    txt_color,
+                    thickness=self.tf,
+                    lineType=cv2.LINE_AA,
+                )
+
+    def horizon(self, line, box, label: str = "", color: tuple = (128, 128, 128), *, label_on: str = "line"):
+        """Draw a horizon line and optional OBB box (black). Label is placed on the line or box."""
+        line_label = label if label_on in {"line", "both"} else ""
+        box_label = label if label_on in {"box", "both"} else ""
+        self.line_label(line, line_label, color=color)
+        if box is not None:
+            self.box_label(box, box_label, color=(0, 0, 0))
+
     def masks(self, masks, colors, im_gpu: torch.Tensor = None, alpha: float = 0.5, retina_masks: bool = False):
         """Plot masks on image.
 
@@ -713,6 +777,21 @@ def save_one_box(
     return crop
 
 
+def top_conf_index(conf) -> int | None:
+    """Return index of the top-confidence detection, or None if not applicable."""
+    if conf is None or len(conf) <= 1:
+        return None
+    return int(np.argmax(conf))
+
+
+def _top_conf_slice(conf, *arrays):
+    """Return arrays sliced to the top-confidence detection when multiple confidences are present."""
+    idx = top_conf_index(conf)
+    if idx is None:
+        return arrays
+    return tuple(a[idx : idx + 1] for a in arrays)
+
+
 @threaded
 def plot_images(
     labels: dict[str, Any],
@@ -727,6 +806,7 @@ def plot_images(
     conf_thres: float = 0.25,
     show_labels: bool = True,
     show_conf: bool = True,
+    horizon: bool = False,
 ) -> np.ndarray | None:
     """Plot image grid with labels, bounding boxes, masks, and keypoints.
 
@@ -744,6 +824,7 @@ def plot_images(
         conf_thres (float): Confidence threshold for displaying detections.
         show_labels (bool): Whether to display class labels.
         show_conf (bool): Whether to display confidence values.
+        horizon (bool): Whether to plot OBB boxes as horizon lines with optional top-confidence filtering.
 
     Returns:
         (np.ndarray | None): Plotted image grid as a numpy array if save is False, None otherwise.
@@ -831,8 +912,11 @@ def plot_images(
                 boxes[..., 0] += x
                 boxes[..., 1] += y
                 is_obb = boxes.shape[-1] == 5  # xywhr
-                boxes = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
-                for j, box in enumerate(boxes.astype(np.int64).tolist()):
+                if horizon and is_obb:
+                    boxes, classes, conf = _top_conf_slice(conf, boxes, classes, conf)
+                boxes_xyxy = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
+                horizon_lines = ops.xywhr2line(boxes) if horizon and is_obb else None
+                for j, box in enumerate(boxes_xyxy.astype(np.int64).tolist()):
                     c = classes[j]
                     color = colors(c)
                     c = names.get(c, c) if names else c
@@ -840,7 +924,10 @@ def plot_images(
                         conf_text = f"{conf[j]:.1f}" if conf is not None else ""
                         label = f"{c}" if show_labels else ""
                         label += f" {conf_text}".strip() if show_conf else ""
-                        annotator.box_label(box, label, color=color)
+                        if horizon_lines is not None:
+                            annotator.horizon(horizon_lines[j].astype(np.int64).tolist(), box, label, color)
+                        else:
+                            annotator.box_label(box, label, color=color)
 
             elif len(classes):
                 for c in classes:
