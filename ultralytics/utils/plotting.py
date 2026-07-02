@@ -435,6 +435,14 @@ class Annotator:
                     lineType=cv2.LINE_AA,
                 )
 
+    def horizon(self, line, box, label: str = "", color: tuple = (128, 128, 128), *, label_on: str = "line"):
+        """Draw a horizon line and optional OBB box (black). Label is placed on the line or box."""
+        line_label = label if label_on in {"line", "both"} else ""
+        box_label = label if label_on in {"box", "both"} else ""
+        self.line_label(line, line_label, color=color)
+        if box is not None:
+            self.box_label(box, box_label, color=(0, 0, 0))
+
     def masks(self, masks, colors, im_gpu: torch.Tensor = None, alpha: float = 0.5, retina_masks: bool = False):
         """Plot masks on image.
 
@@ -769,6 +777,21 @@ def save_one_box(
     return crop
 
 
+def top_conf_index(conf) -> int | None:
+    """Return index of the top-confidence detection, or None if not applicable."""
+    if conf is None or len(conf) <= 1:
+        return None
+    return int(np.argmax(conf))
+
+
+def _top_conf_slice(conf, *arrays):
+    """Return arrays sliced to the top-confidence detection when multiple confidences are present."""
+    idx = top_conf_index(conf)
+    if idx is None:
+        return arrays
+    return tuple(a[idx : idx + 1] for a in arrays)
+
+
 @threaded
 def plot_images(
     labels: dict[str, Any],
@@ -890,37 +913,20 @@ def plot_images(
                 boxes[..., 1] += y
                 is_obb = boxes.shape[-1] == 5  # xywhr
                 if horizon and is_obb:
-                    obb_boxes = boxes.copy()
-                    if conf is not None and len(conf) > 1:
-                        top_idx = int(np.argmax(conf))
-                        obb_boxes = obb_boxes[top_idx : top_idx + 1]
-                        classes = classes[top_idx : top_idx + 1]
-                        conf = conf[top_idx : top_idx + 1]
-                    lines = ops.xywhr2line(obb_boxes, canonical=True)
-                    for j, line in enumerate(lines.astype(np.int64).tolist()):
-                        c = classes[j]
-                        color = colors(c)
-                        if labels or conf[j] > conf_thres:
-                            annotator.line_label(line, label=None, color=color)
-                    boxes = ops.xywhr2xyxyxyxy(obb_boxes)
-                    for j, box in enumerate(boxes.astype(np.int64).tolist()):
-                        c = classes[j]
-                        c = names.get(c, c) if names else c
-                        if labels or conf[j] > conf_thres:
-                            conf_text = f"{conf[j]:.1f}" if conf is not None else ""
-                            label = f"{c}" if show_labels else ""
-                            label += f" {conf_text}".strip() if show_conf else ""
-                            annotator.box_label(box, label, color=(0, 0, 0))
-                else:
-                    boxes = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
-                    for j, box in enumerate(boxes.astype(np.int64).tolist()):
-                        c = classes[j]
-                        color = colors(c)
-                        c = names.get(c, c) if names else c
-                        if labels or conf[j] > conf_thres:
-                            conf_text = f"{conf[j]:.1f}" if conf is not None else ""
-                            label = f"{c}" if show_labels else ""
-                            label += f" {conf_text}".strip() if show_conf else ""
+                    boxes, classes, conf = _top_conf_slice(conf, boxes, classes, conf)
+                boxes_xyxy = ops.xywhr2xyxyxyxy(boxes) if is_obb else ops.xywh2xyxy(boxes)
+                horizon_lines = ops.xywhr2line(boxes) if horizon and is_obb else None
+                for j, box in enumerate(boxes_xyxy.astype(np.int64).tolist()):
+                    c = classes[j]
+                    color = colors(c)
+                    c = names.get(c, c) if names else c
+                    if labels or conf[j] > conf_thres:
+                        conf_text = f"{conf[j]:.1f}" if conf is not None else ""
+                        label = f"{c}" if show_labels else ""
+                        label += f" {conf_text}".strip() if show_conf else ""
+                        if horizon_lines is not None:
+                            annotator.horizon(horizon_lines[j].astype(np.int64).tolist(), box, label, color, label_on="box")
+                        else:
                             annotator.box_label(box, label, color=color)
 
             elif len(classes):

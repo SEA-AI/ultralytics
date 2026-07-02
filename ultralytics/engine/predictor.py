@@ -454,7 +454,7 @@ class BasePredictor:
                 conf=self.args.show_conf,
                 labels=self.args.show_labels,
                 im_gpu=None if self.args.retina_masks else im[i],
-                horizon=getattr(self.args, "horizon", False),
+                horizon=self.args.horizon,
             )
 
         # Save results

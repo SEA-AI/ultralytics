@@ -17,7 +17,7 @@ import torch
 
 from ultralytics.data.augment import LetterBox
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, ops
-from ultralytics.utils.plotting import Annotator, colors, save_one_box
+from ultralytics.utils.plotting import Annotator, colors, save_one_box, top_conf_index
 
 
 class BaseTensor(SimpleClass):
@@ -553,9 +553,8 @@ class Results(SimpleClass, DataExportMixin):
         # Plot Detect results
         if pred_boxes is not None and show_boxes:
             boxes_to_plot = pred_boxes
-            if horizon and is_obb and len(pred_boxes) > 1:
-                top_idx = int(pred_boxes.conf.argmax())
-                boxes_to_plot = pred_boxes[top_idx : top_idx + 1]
+            if horizon and is_obb and (idx := top_conf_index(pred_boxes.conf)) is not None:
+                boxes_to_plot = pred_boxes[idx : idx + 1]
             for i, d in enumerate(reversed(boxes_to_plot)):
                 c, d_conf, id = int(d.cls), float(d.conf) if conf else None, int(d.id.item()) if d.is_track else None
                 name = ("" if id is None else f"id:{id} ") + names[c]
@@ -564,13 +563,11 @@ class Results(SimpleClass, DataExportMixin):
                     c if color_mode == "class" else id if id is not None else i if color_mode == "instance" else None,
                     True,
                 )
+                box = d.xyxyxyxy.reshape(-1, 4, 2).squeeze() if is_obb else d.xyxy.squeeze()
                 if horizon and is_obb:
-                    line = ops.xywhr2line(d.xywhr.squeeze(), canonical=True)
-                    box = d.xyxyxyxy.reshape(-1, 4, 2).squeeze()
-                    annotator.box_label(box, label, color=(0, 0, 0))
-                    annotator.line_label(line, label, color=color)
+                    line = ops.xywhr2line(d.xywhr.squeeze())
+                    annotator.horizon(line, box, label, color)
                 else:
-                    box = d.xyxyxyxy.squeeze() if is_obb else d.xyxy.squeeze()
                     annotator.box_label(box, label, color=color)
 
         # Plot Classify results

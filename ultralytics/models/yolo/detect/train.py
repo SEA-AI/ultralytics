@@ -243,6 +243,7 @@ class DetectionTrainer(BaseTrainer):
             paths=batch["im_file"],
             fname=self.save_dir / f"train_batch{ni}.jpg",
             on_plot=self.on_plot,
+            horizon=getattr(self.args, "horizon", False),
         )
 
     def plot_training_labels(self):

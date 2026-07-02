@@ -404,13 +404,13 @@ def xywhr2xyxyxyxy(x):
     return stack([pt1, pt2, pt3, pt4], -2)
 
 
-def xywhr2line(x, canonical: bool = False):
-    """Convert batched OBB boxes from [xywh, rotation] to line endpoints through the box center.
+def xywhr2line(x):
+    """Convert batched OBB boxes from [xywh, rotation] to horizon line endpoints through the box center.
+
+    Width and height are canonicalized so the line follows the long axis (required for thin horizon boxes).
 
     Args:
         x (np.ndarray | torch.Tensor): Boxes in [cx, cy, w, h, rotation] format with shape (N, 5) or (B, N, 5).
-        canonical (bool): If True, swap width/height when h > w and rotate angle by pi/2 so the line follows the long
-            axis. Use for horizon visualization where boxes are very thin.
 
     Returns:
         (np.ndarray | torch.Tensor): Line endpoints with shape (N, 2, 2) or (B, N, 2, 2) as [[x1, y1], [x2, y2]].
@@ -423,10 +423,9 @@ def xywhr2line(x, canonical: bool = False):
 
     ctr = x[..., :2]
     w, h, angle = (x[..., i : i + 1] for i in range(2, 5))
-    if canonical:
-        swap = h > w
-        w = torch.where(swap, h, w) if isinstance(x, torch.Tensor) else np.where(swap, h, w)
-        angle = angle + swap * (np.pi / 2)
+    swap = h > w
+    w = torch.where(swap, h, w) if isinstance(x, torch.Tensor) else np.where(swap, h, w)
+    angle = angle + swap * (np.pi / 2)
     cos_value, sin_value = cos(angle), sin(angle)
     vec = cat([w / 2 * cos_value, w / 2 * sin_value], -1)
     return stack([ctr + vec, ctr - vec], -2)
