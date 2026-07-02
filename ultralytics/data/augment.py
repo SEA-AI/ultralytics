@@ -1156,7 +1156,10 @@ class RandomPerspective(BaseTransform):
             (dict): Parameters including 'M' (affine matrix), 'scale', 'orig_shape', and 'size'.
         """
         img = labels["img"]
-        size = (img.shape[1], img.shape[0]) if self.size is None else self.size  # w, h
+        if (rect_shape := labels.get("rect_shape")) is not None:  # rect has higher priority
+            size = (int(rect_shape[1]), int(rect_shape[0]))  # rect mode batch shape (h, w) to (w, h)
+        else:
+            size = (img.shape[1], img.shape[0]) if self.size is None else self.size  # w, h
         orig_shape = img.shape[:2]
         M, scale = self._compute_affine_matrix(img, size)
         return {"M": M, "scale": scale, "orig_shape": orig_shape, "size": size}
@@ -2603,7 +2606,7 @@ class RandomLoadText(BaseTransform):
         neg_samples: tuple[int, int] = (80, 80),
         max_samples: int = 80,
         padding: bool = False,
-        padding_value: list[str] = [""],
+        padding_value: list[str] | None = None,
     ) -> None:
         """Initialize the RandomLoadText class for randomly sampling positive and negative texts.
 
@@ -2624,7 +2627,7 @@ class RandomLoadText(BaseTransform):
         self.neg_samples = neg_samples
         self.max_samples = max_samples
         self.padding = padding
-        self.padding_value = padding_value
+        self.padding_value = padding_value if padding_value is not None else [""]
 
     def get_params(self, labels: dict[str, Any]) -> dict[str, Any]:
         """Compute text sampling parameters.
@@ -2695,7 +2698,7 @@ class RandomLoadText(BaseTransform):
         return labels
 
 
-def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bool = False):
+def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace):
     """Apply a series of image transformations for training.
 
     This function creates a composition of image augmentation techniques to prepare images for YOLO training. It
@@ -2706,7 +2709,6 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         imgsz (int): The target image size for resizing.
         hyp (IterableSimpleNamespace): A namespace of hyperparameters controlling various aspects of the
             transformations.
-        stretch (bool): If True, applies stretching to the image. If False, uses LetterBox resizing.
 
     Returns:
         (Compose): A composition of image transformations to be applied to the dataset.
@@ -2742,7 +2744,7 @@ def v8_transforms(dataset, imgsz: int, hyp: IterableSimpleNamespace, stretch: bo
         scale=hyp.scale,
         shear=hyp.shear,
         perspective=hyp.perspective,
-        size=(imgsz, imgsz) if not stretch else None,
+        size=(imgsz, imgsz),
         fill_value=hyp.fill_value,
     )
 
