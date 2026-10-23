@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from ultralytics.utils import LOGGER, YAML
-from ultralytics.utils.checks import check_requirements
+from ultralytics.utils.checks import check_requirements, parse_requirements
 
 
 def onnx2deepx(
@@ -16,7 +16,7 @@ def onnx2deepx(
     metadata: dict | None = None,
     optimize: bool = False,
     prefix: str = "",
-) -> Path:
+) -> str:
     """Convert an ONNX model to DEEPX format using the DEEPX DX-Compiler.
 
     Args:
@@ -29,13 +29,18 @@ def onnx2deepx(
         prefix (str, optional): Logging prefix. Defaults to "".
 
     Returns:
-        (Path): Path to the exported DEEPX model directory.
+        (str): Path to the exported DEEPX model directory.
     """
-    try:
-        import dx_com
-    except ImportError:
-        check_requirements("dx_com", cmds="-f https://sdk.deepx.ai/release/dxcom/v2.3.0/index.html")
-        import dx_com
+    # dx_com requires GUI opencv-python, which would replace headless OpenCV, so install its other requirements only
+    check_requirements("dx_com>=2.4.1", cmds="--no-deps")
+    check_requirements(
+        [
+            f"{r.name}{r.specifier}"
+            for r in parse_requirements(package="dx_com")
+            if r.name != "opencv-python" and ";" not in r.specifier
+        ]
+    )
+    import dx_com
 
     LOGGER.info(f"\n{prefix} starting export with DEEPX...")
 
@@ -49,7 +54,8 @@ def onnx2deepx(
         "calibration_num": 100,  # number of steps used during calibration
         "calibration_method": "ema",  # calibration method used during quantization
         "default_loader": {
-            "dataset_path": str(dataset.dataset.img_path),  # JSON needs str, classify returns a Path
+            # JSON needs str; ClassificationDataset stores its image directory as 'root' rather than 'img_path'
+            "dataset_path": str(getattr(dataset.dataset, "img_path", None) or dataset.dataset.root),
             "file_extensions": [val for x in ["jpeg", "jpg", "png"] for val in (x.lower(), x.upper())],
             "preprocessings": [
                 {"resize": {"mode": "pad", "size": imgsz[0], "pad_location": "edge", "pad_value": [114, 114, 114]}},
@@ -69,4 +75,4 @@ def onnx2deepx(
     if metadata is not None:
         YAML.save(export_path / "metadata.yaml", metadata)
 
-    return export_path
+    return str(export_path)

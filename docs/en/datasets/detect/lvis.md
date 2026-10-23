@@ -26,7 +26,7 @@ The [LVIS dataset](https://www.lvisdataset.org/) is a large-scale [object detect
 </p>
 
 <p align="center">
-    <img width="640" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/lvis-dataset-example-images.avif" alt="LVIS large vocabulary instance segmentation dataset">
+    <img width="640" src="https://cdn.ul.run/i/d6581aa0d474f8c8592580239fa60898.avif" alt="LVIS large vocabulary instance segmentation dataset">
 </p>
 
 ## Key Features
@@ -34,7 +34,7 @@ The [LVIS dataset](https://www.lvisdataset.org/) is a large-scale [object detect
 - LVIS spans roughly 160,000 images with about 2 million instance annotations for object detection and instance segmentation.
 - The dataset defines 1,203 object categories, including common objects like cars, bicycles, and animals as well as fine-grained categories such as umbrellas, handbags, and sports equipment.
 - Annotations include object bounding boxes and segmentation masks, with a strong focus on rare, long-tailed categories.
-- LVIS provides standardized evaluation metrics like [mean Average Precision](https://www.ultralytics.com/glossary/mean-average-precision-map) (mAP) for detection and mean Average [Recall](https://www.ultralytics.com/glossary/recall) (mAR) for segmentation, making model comparison straightforward.
+- LVIS provides standardized evaluation metrics like [mean Average Precision](https://www.ultralytics.com/glossary/mean-average-precision-map) (mAP) for detection and instance segmentation, including separate AP for rare, common, and frequent categories, making model comparison straightforward.
 - LVIS uses the same images as the [COCO](./coco.md) dataset but with different splits and far more detailed annotations.
 
 ## Dataset Structure
@@ -53,7 +53,7 @@ The upstream LVIS benchmark also includes a held-out test set of roughly 20,000 
 
 The LVIS dataset is widely used to train and evaluate [deep learning](https://www.ultralytics.com/glossary/deep-learning-dl) models for object detection (such as [YOLO](../../models/yolo26.md), [Faster R-CNN](https://arxiv.org/abs/1506.01497), and [SSD](https://arxiv.org/abs/1512.02325)) and instance segmentation (such as [Mask R-CNN](https://arxiv.org/abs/1703.06870)). Its large, long-tailed vocabulary, high annotation volume, and standardized evaluation metrics make it an essential benchmark for measuring how well [computer vision](https://www.ultralytics.com/glossary/computer-vision-cv) models handle rare categories.
 
-To label your own images, train, and manage large-vocabulary datasets like LVIS in your browser, run the full workflow with [Ultralytics Platform](https://platform.ultralytics.com/).
+Browse the official [LVIS detection](https://platform.ultralytics.com/ultralytics/datasets/lvis) and [LVIS segmentation](https://platform.ultralytics.com/ultralytics/datasets/lvis-seg) datasets on Ultralytics Platform to inspect their annotations, statistics, and classes or clone them for training.
 
 ## Dataset YAML
 
@@ -94,7 +94,7 @@ To train a YOLO26n model on the LVIS dataset for 100 [epochs](https://www.ultral
 
 The LVIS dataset contains diverse images with many object categories in complex scenes. Below is an example of a mosaiced training batch:
 
-![LVIS large vocabulary instance segmentation dataset mosaic](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/lvis-mosaiced-training-batch.avif)
+![LVIS large vocabulary instance segmentation dataset mosaic](https://cdn.ul.run/i/3c2b9360ffd8f0e28875a5fe3ac1fff9.avif)
 
 - **Mosaiced Image**: This training batch combines multiple LVIS images into one through mosaicing, a technique that increases the variety of objects and scenes in each batch and helps the model generalize to different object sizes, aspect ratios, and contexts.
 
@@ -102,7 +102,7 @@ The LVIS dataset contains diverse images with many object categories in complex 
 
 If you use the LVIS dataset in your research or development work, please cite the following paper:
 
-!!! quote ""
+!!! quote "Citation"
 
     === "BibTeX"
 

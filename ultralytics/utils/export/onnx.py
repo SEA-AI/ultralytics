@@ -1,36 +1,34 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-import numpy as np
-
 from ultralytics.utils import LOGGER
 
 
-def onnx_calibration_reader(dataset, transform_fn, input_name: str = "images", batch: int = 0):
+def onnx_calibration_reader(dataset, transform_fn, input_name: str = "images"):
     """Create an ONNX Runtime calibration data reader from an Ultralytics calibration dataloader.
 
-    `batch` is the graph's static batch dimension (0 for dynamic-batch models): calibration datasets smaller than the
-    export batch yield undersized batches that static graphs reject, so samples are tiled up to exactly `batch`.
+    Args:
+        dataset (Iterable): Calibration dataloader yielding batch dicts.
+        transform_fn (Callable): Function converting a batch dict to a float32 NCHW numpy array.
+        input_name (str): Name of the ONNX graph input to feed.
+
+    Returns:
+        (onnxruntime.quantization.CalibrationDataReader): Calibration data reader over `dataset`.
     """
     from onnxruntime.quantization import CalibrationDataReader
 
     class _CalibrationReader(CalibrationDataReader):
         def __init__(self):
-            """Materialize calibration inputs as `{input_name: float32_NCHW}` dicts."""
-            self.samples = []
-            for b in dataset:
-                im = transform_fn(b)
-                if batch and im.shape[0] != batch:  # tile up to the static batch dimension
-                    im = np.tile(im, (-(-batch // im.shape[0]), 1, 1, 1))[:batch]
-                self.samples.append({input_name: im})
-            self.iterator = iter(self.samples)
+            """Initialize calibration dataset iteration."""
+            self.iterator = iter(dataset)
 
         def get_next(self):
             """Return the next calibration sample, or None when exhausted."""
-            return next(self.iterator, None)
+            b = next(self.iterator, None)
+            return None if b is None else {input_name: transform_fn(b)}
 
         def rewind(self):
             """Reset the iterator for an additional calibration pass."""
-            self.iterator = iter(self.samples)
+            self.iterator = iter(dataset)
 
     return _CalibrationReader()
 
@@ -41,10 +39,21 @@ def onnx_int8_quantize(
     dataset,
     transform_fn,
     input_name: str = "images",
-    batch: int = 0,
     prefix: str = "",
 ) -> str:
-    """Quantize an ONNX model to INT8 using ONNX Runtime static quantization."""
+    """Quantize an ONNX model to INT8 using ONNX Runtime static quantization.
+
+    Args:
+        onnx_file (str | Path): Path to the FP32 ONNX model.
+        output_file (str | Path): Path to save the INT8 ONNX model.
+        dataset (Iterable): Calibration dataloader yielding batch dicts.
+        transform_fn (Callable): Function converting a batch dict to a float32 NCHW numpy array.
+        input_name (str): Name of the ONNX graph input to feed.
+        prefix (str): Prefix for log messages.
+
+    Returns:
+        (str): Path to the quantized ONNX file.
+    """
     import onnx
     from onnxruntime.quantization import quantize_static
 
@@ -53,12 +62,13 @@ def onnx_int8_quantize(
     # ONNX Runtime crash on the uncalibrated attention Softmax.
     graph = onnx.load(onnx_file).graph
     exclude = [n.name for n in graph.node if n.op_type not in {"Conv", "Gemm", "MatMul"}]
+    del graph
 
     LOGGER.info(f"{prefix} quantizing INT8 with ONNX Runtime...")
     quantize_static(
         onnx_file,
         output_file,
-        onnx_calibration_reader(dataset, transform_fn, input_name, batch),
+        onnx_calibration_reader(dataset, transform_fn, input_name),
         nodes_to_exclude=exclude,
     )
     return str(output_file)

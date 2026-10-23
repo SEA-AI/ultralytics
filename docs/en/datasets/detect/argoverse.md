@@ -14,9 +14,11 @@ keywords: Argoverse dataset, Argoverse-HD, object detection, 2D detection, auton
 
 The Ultralytics Argoverse dataset (Argoverse-HD) is a 2D [object detection](../../tasks/detect.md) dataset of 54,446 labeled autonomous-driving images — 39,384 for training and 15,062 for validation — across 8 classes: person, bicycle, car, motorcycle, bus, truck, traffic light, and stop sign. The images are captured from a vehicle's ring-front-center camera, and the annotations come from Carnegie Mellon University's streaming-perception project, built on [Argo AI](https://www.argoverse.org/)'s Argoverse 1.1 driving data. It is a large, real-world benchmark for training [computer vision](https://www.ultralytics.com/glossary/computer-vision-cv) models to detect road objects in self-driving scenarios.
 
+Explore [Argoverse-HD on Ultralytics Platform](https://platform.ultralytics.com/ultralytics/datasets/argoverse) to preview annotated samples, inspect dataset statistics, and clone it for training.
+
 !!! note "Manual download required"
 
-    The Argoverse-HD `*.zip` file (~31.5 GB) needed for training was removed from Amazon S3 after the shutdown of Argo AI by Ford. It is available for manual download from [Google Drive](https://drive.google.com/file/d/1st9qW3BeIwQsnR0t8mRpvbsSWIo16ACi/view?usp=drive_link) — automatic download will not work, so download the archive before training.
+    The Argoverse-HD `*.zip` file (~31.5 GB) needed for training was removed from Amazon S3 after the shutdown of Argo AI by Ford. It is available for manual download from [Google Drive](https://drive.google.com/file/d/1st9qW3BeIwQsnR0t8mRpvbsSWIo16ACi/view?usp=drive_link) — automatic download will not work, so download the archive and extract it into the `Argoverse` folder of your datasets directory before training.
 
 ## Key Features
 
@@ -45,7 +47,7 @@ All images share the same 8 object classes (indices 0–7): person, bicycle, car
 
 The Argoverse-HD dataset supports a range of [object detection](../../tasks/detect.md) applications in autonomous driving:
 
-- **Self-driving perception** — detect vehicles, pedestrians, and cyclists from a forward-facing camera to support [autonomous-vehicle](https://www.ultralytics.com/solutions/ai-in-automotive) navigation.
+- **Self-driving perception** — detect vehicles, pedestrians, and cyclists from a forward-facing camera to support [autonomous-vehicle](https://www.ultralytics.com/solutions/computer-vision-in-automotive) navigation.
 - **Advanced driver-assistance systems (ADAS)** — recognize traffic lights and stop signs for real-time driver alerts.
 - **Traffic monitoring** — count and track road users in urban scenes for smart-city analytics.
 - **Research and prototyping** — a large, real-world benchmark for learning [model training](../../modes/train.md) and [prediction](../../modes/predict.md) on driving data.
@@ -112,7 +114,7 @@ Once trained, run [inference](../../modes/predict.md) with the fine-tuned model 
 
 The Argoverse-HD dataset contains high-resolution driving images captured from a ring-front-center camera, annotated with 2D bounding boxes for the 8 object classes. Below is an example image from the dataset with its corresponding annotations:
 
-![Argoverse-HD autonomous driving scene with annotated road objects](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/argoverse-3d-tracking-sample.avif)
+![Argoverse-HD autonomous driving scene with annotated road objects](https://cdn.ul.run/i/7a50b6053357bf7d3f350227801dce66.avif)
 
 - **Annotated driving scene**: This image shows road objects — such as vehicles and pedestrians — labeled with 2D bounding boxes, the format YOLO models learn to predict during training.
 
@@ -120,7 +122,7 @@ The Argoverse-HD dataset contains high-resolution driving images captured from a
 
 The Argoverse-HD 2D detection annotations used in this dataset come from Carnegie Mellon University's streaming-perception work. If you use the dataset in your research or development, please cite:
 
-!!! quote ""
+!!! quote "Citation"
 
     === "BibTeX"
 
@@ -187,7 +189,7 @@ For a detailed explanation of the arguments, refer to the model [Training](../..
 
 ### Where can I download the Argoverse dataset now that it has been removed from Amazon S3?
 
-The Argoverse-HD `*.zip` file (~31.5 GB), previously hosted on Amazon S3, can now be downloaded manually from [Google Drive](https://drive.google.com/file/d/1st9qW3BeIwQsnR0t8mRpvbsSWIo16ACi/view?usp=drive_link). Automatic download will not work, so fetch the archive before running your training command.
+The Argoverse-HD `*.zip` file (~31.5 GB), previously hosted on Amazon S3, can now be downloaded manually from [Google Drive](https://drive.google.com/file/d/1st9qW3BeIwQsnR0t8mRpvbsSWIo16ACi/view?usp=drive_link). Automatic download will not work, so fetch the archive and extract it into the `Argoverse` folder of your datasets directory before running your training command.
 
 ### Can I use the Argoverse dataset with Ultralytics Platform?
 

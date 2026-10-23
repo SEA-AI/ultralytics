@@ -30,10 +30,10 @@ Object cropping with [Ultralytics YOLO26](https://github.com/ultralytics/ultraly
 
 ## Visuals
 
-|                                                                                 Airport Luggage                                                                                 |
-| :-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| ![Conveyor Belt at Airport Suitcases Cropping using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/suitcases-cropping-airport-conveyor-belt.avif) |
-|                                                      Suitcases Cropping at airport conveyor belt using Ultralytics YOLO26                                                       |
+|                                                           Airport Luggage                                                           |
+| :---------------------------------------------------------------------------------------------------------------------------------: |
+| ![Conveyor Belt at Airport Suitcases Cropping using Ultralytics YOLO26](https://cdn.ul.run/i/64b719a995705988d204b205eb0d3a9e.avif) |
+|                                Suitcases Cropping at airport conveyor belt using Ultralytics YOLO26                                 |
 
 ## Crop Objects with YOLO26
 
@@ -88,19 +88,18 @@ Pass your video to the `ObjectCropper` solution and it detects objects each fram
         cv2.destroyAllWindows()  # destroy all opened windows
         ```
 
-        When you provide the optional `crop_dir` argument, every cropped object is written to that folder with sequentially numbered filenames (e.g. `crop_1.jpg`, `crop_2.jpg`). This makes it easy to inspect detections or build downstream datasets without writing extra code.
+        Every cropped object is written to the `crop_dir` folder (`cropped-detections` by default) with sequentially numbered filenames (e.g. `crop_1.jpg`, `crop_2.jpg`). This makes it easy to inspect detections or build downstream datasets without writing extra code.
 
 ### `ObjectCropper` Arguments
 
 Here's a table with the `ObjectCropper` arguments:
 
 {% from "macros/solutions-args.md" import param_table %}
-{{ param_table(["model", "crop_dir"]) }}
+{{ param_table(["model", "crop_dir", "verbose"]) }}
 
-Moreover, the following visualization arguments are available for use:
+The `ObjectCropper` runs `predict` rather than `track`, so it supports the following inference parameters except `tracker`:
 
-{% from "macros/visualization-args.md" import param_table %}
-{{ param_table(["show", "line_width"]) }}
+{% include "macros/solutions-track-args.md" %}
 
 ## FAQ
 

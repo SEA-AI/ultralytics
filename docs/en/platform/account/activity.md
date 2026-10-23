@@ -10,11 +10,11 @@ keywords: Ultralytics Platform, activity feed, audit log, notifications, event t
 
 [Ultralytics Platform](https://platform.ultralytics.com) provides a comprehensive activity feed that tracks all events and actions across your account. Monitor training progress and system events in one centralized location.
 
-![Ultralytics Platform Activity Page Inbox Tab With Event List](https://cdn.ul.run/i/13a07c40c136229925eb9c2dd08e109b.avif)<!-- screenshot -->
+![Ultralytics Platform Activity Page Inbox Tab With Event List](https://cdn.ul.run/i/4d369a183f4629a4381db26b1c50ed65.avif)<!-- screenshot -->
 
 ## Overview
 
-The Activity Feed serves as your central hub for:
+The Activity Feed provides one place for:
 
 - **Training updates**: Job started, completed, failed, or cancelled
 - **Data changes**: Datasets created, modified, or deleted
@@ -28,11 +28,13 @@ The Activity Feed serves as your central hub for:
 
 Navigate to the Activity Feed in any of the following ways:
 
-1. Click the activity indicator in the top navigation bar
+1. Click the activity indicator in the top navigation bar, then **View all activity**
 2. Open the profile menu at the bottom of the sidebar and select **Activity**
 3. Navigate directly to `/activity`
 
-![Ultralytics Platform Activity Page Inbox With Search And Date Filter](https://cdn.ul.run/i/25e9aec0b788985d37cc314093ebb1d8.avif)<!-- screenshot -->
+The dropdown in the top bar shows the most recent events with the same archive and undo actions as the full page.
+
+![Ultralytics Platform Activity Page Inbox With Search And Date Filter](https://cdn.ul.run/i/a134f64884708d614161832aab866305.avif)<!-- screenshot -->
 
 ## Activity Types
 
@@ -94,6 +96,9 @@ Move events to Archive to keep your Inbox clean:
 - Access archived events via the `Archive` tab
 - Click **Restore** on archived events to move them back to Inbox
 
+Archiving and restoring require the Editor role or higher in a team workspace. Viewers can read the feed and export it,
+but the Archive controls are hidden for them.
+
 ## Search and Filtering
 
 Find specific events quickly:
@@ -110,7 +115,7 @@ Filter by time period using the date range picker:
 - The page defaults to the last 30 days
 - Custom date ranges supported
 
-![Ultralytics Platform Activity Page Date Range Picker Expanded](https://cdn.ul.run/i/f5366025524c00a10e8a1135437f1d89.avif)<!-- screenshot -->
+![Ultralytics Platform Activity Page Date Range Picker Expanded](https://cdn.ul.run/i/5333b2027ed10f52e204388533445951.avif)<!-- screenshot -->
 
 ## Event Details
 
@@ -127,31 +132,38 @@ Each row displays:
 
 ## Undo Support
 
-Recent settings changes support undo directly from the Activity feed:
+Settings changes support undo directly from the Activity feed:
 
 - Click **Undo** next to the matching settings event to restore the previous value.
-- Undo remains available for **one hour** in the browser session where the change was made. It does not persist after
-  reloading or opening another browser.
+- Undo remains available for **one hour** in the browser session where the change was made. It is held in memory only,
+  so it does not persist after reloading or opening another browser.
+- Only settings events are undoable. Trashed resources are recovered from [Trash](trash.md) instead.
 
 ## Pagination
 
 The Activity feed supports pagination:
 
-- Default page size: 20 events
-- Navigate between pages using the pagination controls
-- Page size is configurable via URL query parameter
+- Default page size: 20 events, up to 100 per page
+- Navigate between pages and change the page size using the pagination controls
+- The tab, page, page size, search, and date range are all reflected in the URL, so a filtered view can be bookmarked
+  or shared
 
 ## Export Activity
 
-Click **Export** to download the events in the current Inbox or Archive view as JSON. The export respects the active
-search and date filters.
+Use the export menu in the card header to download the events in the current Inbox or Archive view as **CSV** or
+**JSON**, or to copy them to the clipboard as JSON. The export respects the active search and date filters, and covers
+the whole filtered result rather than just the visible page.
+
+Each exported row carries the event time, action and resource type, resource name and ID, user name, email, and ID, the
+event metadata, and the archived and seen flags.
 
 ## FAQ
 
 ### Can I export my activity history?
 
-Yes. Click **Export** on the Activity page to download the current filtered view, or use the GDPR data export feature
-in [`Settings > Profile`](settings.md#gdpr-compliance) to download account metadata including activity history.
+Yes. Use the export menu on the Activity page to download the current filtered view as CSV or JSON, or use the GDPR
+data export in [`Settings > Profile`](settings.md#gdpr-compliance) to download account metadata including your full
+activity history.
 
 ### What happens to activity when I delete a resource?
 

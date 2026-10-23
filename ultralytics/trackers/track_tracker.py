@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections import deque
 from functools import wraps
 from typing import Any
@@ -41,22 +42,26 @@ def _hmiou_distance(tracks_a: list[TTSTrack], tracks_b: list[TTSTrack]) -> tuple
     return iou_sim, 1.0 - h_iou * iou_sim
 
 
-def _angle_distance(tracks: list[TTSTrack], dets: list[TTSTrack], frame_id: int, delta_t: int = 3) -> np.ndarray:
-    """Return angle distance between each track's corner velocities and the track-to-detection direction."""
-    if len(tracks) == 0 or len(dets) == 0:
-        return np.ones((len(tracks), len(dets)), dtype=np.float32)
-    track_boxes = np.stack([track.get_history_box(frame_id, delta_t) for track in tracks])  # (N, 4)
-    det_boxes = np.stack([det.xyxy for det in dets])  # (M, 4)
-    deltas = det_boxes[None] - track_boxes[:, None]  # (N, M, 4)
-    dx = deltas[:, :, _CORNER_DX_IDX]
-    dy = deltas[:, :, _CORNER_DY_IDX]
+def _angle_distance(
+    tracks: list[TTSTrack], dets: list[TTSTrack], frame_id: int, pairs: tuple[np.ndarray, np.ndarray], delta_t: int = 3
+) -> np.ndarray:
+    """Return angle distance for the IoU-supported `(track, det)` index `pairs` only.
+
+    `_cost_matrix` overwrites unsupported pairs, so a full `(N, M)` grid would compute discarded work.
+    """
+    track_idx, det_idx = pairs
+    track_boxes = np.stack([tracks[i].get_history_box(frame_id, delta_t) for i in track_idx])  # (P, 4)
+    det_boxes = np.stack([dets[i].xyxy for i in det_idx])  # (P, 4)
+    deltas = det_boxes - track_boxes  # (P, 4)
+    dx = deltas[:, _CORNER_DX_IDX]
+    dy = deltas[:, _CORNER_DY_IDX]
     norms = np.sqrt(dx * dx + dy * dy) + 1e-5
     dx /= norms
     dy /= norms
-    track_velocities = np.stack([track.velocity for track in tracks])  # (N, 4, 2)
-    dot = track_velocities[:, None, :, 0] * dx + track_velocities[:, None, :, 1] * dy
-    dist = np.abs(np.arccos(np.clip(dot, -1, 1))).mean(axis=-1) / np.pi  # (N, M)
-    return dist * np.array([det.score for det in dets])[None]
+    track_velocities = np.stack([tracks[i].velocity for i in track_idx])  # (P, 4, 2)
+    dot = track_velocities[:, :, 0] * dx + track_velocities[:, :, 1] * dy
+    dist = np.abs(np.arccos(np.clip(dot, -1, 1))).mean(axis=-1) / np.pi  # (P,)
+    return dist * np.array([dets[i].score for i in det_idx])
 
 
 def _confidence_distance(tracks: list[TTSTrack], dets: list[TTSTrack]) -> np.ndarray:
@@ -70,7 +75,7 @@ def _confidence_distance(tracks: list[TTSTrack], dets: list[TTSTrack]) -> np.nda
     return np.abs(track_proj_scores[:, None] - det_scores[None])
 
 
-def _iterative_associate(cost: np.ndarray, match_thr: float, reduce_step: float = 0.05) -> tuple[list]:
+def _iterative_associate(cost: np.ndarray, match_thr: float, reduce_step: float = 0.05) -> tuple[list, list, list]:
     """Greedy mutually-nearest matching with a threshold that shrinks each iteration.
 
     Returns (matches, unmatched_tracks, unmatched_dets).
@@ -137,6 +142,8 @@ def attach_raw_preds_hook(predictor) -> None:
 
     @wraps(orig)
     def _wrapped(preds, img, orig_imgs, *args, **kwargs):
+        if predictor.args.mode != "track":  # plain predict() on this predictor needs no capture
+            return orig(preds, img, orig_imgs, *args, **kwargs)
         raw = preds[0] if isinstance(preds, (list, tuple)) else preds  # PyTorch models return [inference, extras]
         # clone() so the in-place NMS xywh->xyxy conversion can't mutate this capture; keep source device for box_iou
         predictor._raw_preds = raw.detach().clone() if isinstance(raw, torch.Tensor) else raw
@@ -149,7 +156,7 @@ def attach_raw_preds_hook(predictor) -> None:
 
 
 def compute_dets_del(predictor) -> list | None:
-    """Return per-batch `(xywh, conf, cls)` tuples for detections the tight NMS dropped, or None if unavailable."""
+    """Return per-batch `(xywh, conf, cls)` tuples (`xywhr` for OBB) for detections tight NMS dropped, or None."""
     raw = getattr(predictor, "_raw_preds", None)
     if raw is None or not isinstance(raw, torch.Tensor):
         return None
@@ -175,8 +182,7 @@ def compute_dets_del(predictor) -> list | None:
             continue
         dels = loose_boxes.data[mask].cpu()
         if is_obb:
-            xywh = dels[:, :5].numpy()  # xywhr
-            out.append((xywh, dels[:, 5].numpy(), dels[:, 6].numpy()))
+            out.append((dels[:, :5].numpy(), dels[:, 5].numpy(), dels[:, 6].numpy()))
         else:
             xywh = ops.xyxy2xywh(dels[:, :4]).numpy()
             out.append((xywh, dels[:, 4].numpy(), dels[:, 5].numpy()))
@@ -197,8 +203,10 @@ def _cosine_distance(tracks: list[TTSTrack], dets: list[TTSTrack]) -> np.ndarray
     dfeat = [d.curr_feat for d in dets]
     dim = next((f.shape[0] for f in (*tfeat, *dfeat) if f is not None), 128)
     zeros = np.zeros(dim, dtype=np.float32)
-    T = np.stack([f if f is not None else zeros for f in tfeat])
-    D = np.stack([f if f is not None else zeros for f in dfeat])
+    # Pin float32 as `matching.embedding_distance` does: an unpinned stack inherits the encoder's dtype, so a
+    # half-precision ReID backend (`quantize=16`, or a float16 ONNX model) would decide this cost matrix' precision.
+    T = np.asarray([f if f is not None else zeros for f in tfeat], dtype=np.float32)
+    D = np.asarray([f if f is not None else zeros for f in dfeat], dtype=np.float32)
     valid = np.array([f is not None for f in tfeat])[:, None] & np.array([f is not None for f in dfeat])[None, :]
     return np.where(valid, np.clip(1 - T @ D.T, 0, 1), np.nan).astype(np.float32)
 
@@ -223,7 +231,7 @@ class TTSTrack(BOTrack):
 
     Examples:
         Create and activate a new track
-        >>> track = TTSTrack([100, 200, 50, 80, 0], score=0.9, cls="person")
+        >>> track = TTSTrack(np.array([100, 200, 50, 80, 0]), score=0.9, cls="person")
         >>> track.activate(KalmanFilterXYWH(), frame_id=1)
     """
 
@@ -262,18 +270,17 @@ class TTSTrack(BOTrack):
                 return box.copy()
         if self._history:
             return self._history[-1][1].copy()
-        return self.xyxy.copy()
+        return self.xyxy
 
     def activate(self, kalman_filter: KalmanFilterXYWH, frame_id: int) -> None:
-        """Initialize Kalman state and promote to New state."""
+        """Initialize Kalman state and set the track to New, or directly to Tracked when `min_track_len <= 1`."""
         self.kalman_filter = kalman_filter
         self.track_id = self.next_id()
         self.mean, self.covariance = kalman_filter.initiate(self.convert_coords(self._tlwh))
-        self._history.append((frame_id, self.xyxy.copy()))
+        self._history.append((frame_id, self.xyxy))
         self.tracklet_len = 0
-        self.state = TrackState.New
-        if frame_id == 1:
-            self.is_activated = True
+        self.state = TrackState.Tracked if self.min_track_len <= 1 else TrackState.New
+        self.is_activated = frame_id == 1 or self.state == TrackState.Tracked
         self.frame_id = self.start_frame = frame_id
 
     def re_activate(self, new_track, frame_id: int, new_id: bool = False) -> None:
@@ -282,7 +289,7 @@ class TTSTrack(BOTrack):
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.convert_coords(new_track.tlwh), confidence=new_track.score
         )
-        self._history.append((frame_id, self.xyxy.copy()))
+        self._history.append((frame_id, self.xyxy))
         self.score = new_track.score  # set before update_features so the EMA weight uses the current confidence
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
@@ -292,7 +299,9 @@ class TTSTrack(BOTrack):
         self.frame_id = frame_id
         if new_id:
             self.track_id = self.next_id()
-        self.cls, self.angle, self.idx = new_track.cls, new_track.angle, new_track.idx
+        self.cls, self.idx = new_track.cls, new_track.idx
+        if self.angle is not None:  # keep the half-turn form (θ or θ ± π) nearest the track angle, so it never flips
+            self.angle = new_track.angle - np.pi * round((new_track.angle - self.angle) / np.pi)
 
     def update(self, new_track, frame_id: int) -> None:
         """Update a matched track with a new detection; promote to Tracked after min_track_len."""
@@ -302,7 +311,7 @@ class TTSTrack(BOTrack):
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean, self.covariance, self.convert_coords(new_track.tlwh), confidence=new_track.score
         )
-        self._history.append((frame_id, new_track.xyxy.copy()))
+        self._history.append((frame_id, new_track.xyxy))
 
         velocity = np.zeros((4, 2), dtype=np.float32)
         curr_box = new_track.xyxy
@@ -317,10 +326,12 @@ class TTSTrack(BOTrack):
         if new_track.curr_feat is not None:
             self.update_features(new_track.curr_feat)
 
-        if self.state == TrackState.Tracked or self.tracklet_len >= self.min_track_len:
+        if self.state == TrackState.Tracked or self.tracklet_len + 1 >= self.min_track_len:
             self.state = TrackState.Tracked
             self.is_activated = True
-        self.cls, self.angle, self.idx = new_track.cls, new_track.angle, new_track.idx
+        self.cls, self.idx = new_track.cls, new_track.idx
+        if self.angle is not None:  # keep the half-turn form (θ or θ ± π) nearest the track angle, so it never flips
+            self.angle = new_track.angle - np.pi * round((new_track.angle - self.angle) / np.pi)
 
     def __repr__(self) -> str:
         """Short string representation of the track."""
@@ -340,7 +351,7 @@ class TRACKTRACK:
         lost_stracks (list[TTSTrack]): Tracks that lost their detection but remain within the buffer window.
         frame_id (int): Current frame index.
         args (Any): Parsed tracker configuration.
-        max_time_lost (int): Frame budget before a lost track is removed (scaled to source frame rate).
+        max_time_lost (int): Frames a lost track is kept before removal, from `track_buffer`.
         kalman_filter (KalmanFilterXYWH): Kalman filter for new-track initialization.
         match_thr (float): Cost gate for the main iterative assignment.
         lost_match_thr (float): Cost gate for the optional relaxed lost-rebind pass; 0 disables it.
@@ -353,8 +364,13 @@ class TRACKTRACK:
 
     Examples:
         Initialize and run on a single frame
+        >>> from ultralytics import YOLO
+        >>> from ultralytics.utils import YAML, IterableSimpleNamespace
+        >>> from ultralytics.utils.checks import check_yaml
+        >>> args = IterableSimpleNamespace(**YAML.load(check_yaml("tracktrack.yaml")))
         >>> tracker = TRACKTRACK(args)
-        >>> tracked_objects = tracker.update(yolo_results, img=image)
+        >>> result = YOLO("yolo26n.pt")("https://ultralytics.com/images/bus.jpg")[0]
+        >>> tracked_objects = tracker.update(result.boxes.cpu().numpy(), img=result.orig_img)
     """
 
     def __init__(self, args):
@@ -371,6 +387,7 @@ class TRACKTRACK:
         self.args = args
         self.max_time_lost = args.track_buffer
         self.kalman_filter = KalmanFilterXYWH()
+        self._ids = iter(range(1, sys.maxsize))
 
         self.match_thr = getattr(args, "match_thresh", 0.7)
         self.lost_match_thr = getattr(args, "lost_match_thr", 0.0)
@@ -399,14 +416,16 @@ class TRACKTRACK:
 
         Recovered (loose-NMS) detections are box-only and have no row in the post-NMS Results, so on segment/pose
         tasks they cannot carry mask/keypoint data and would mis-index downstream; skip recovery (and its
-        per-frame overhead) for those tasks.
+        per-frame overhead) for those tasks and RT-DETR predictors, which do not suppress boxes with NMS.
         """
-        if predictor.args.task in {"detect", "obb"}:
+        from ultralytics.models.yolo.detect import DetectionPredictor
+
+        if predictor.args.task in {"detect", "obb"} and isinstance(predictor, DetectionPredictor):
             attach_raw_preds_hook(predictor)
 
     @classmethod
     def compute_frame_extras(cls, predictor):
-        """Return per-batch ``(xywh, conf, cls)`` tuples for detections dropped by tight NMS."""
+        """Return per-batch ``(xywh, conf, cls)`` tuples (``xywhr`` for OBB) for detections dropped by tight NMS."""
         return compute_dets_del(predictor)
 
     def _cost_matrix(self, tracks: list[TTSTrack], dets: list[TTSTrack]) -> np.ndarray:
@@ -420,9 +439,12 @@ class TRACKTRACK:
         else:
             cost = hmiou_dist
         cost += self.conf_weight * _confidence_distance(tracks, dets)
-        cost += self.angle_weight * _angle_distance(tracks, dets, self.frame_id)
         if iou_sim.size > 0:
-            cost[iou_sim <= 0.10] = 1.0
+            supported = iou_sim > 0.10
+            pairs = np.nonzero(supported)
+            if len(pairs[0]):
+                cost[pairs] += self.angle_weight * _angle_distance(tracks, dets, self.frame_id, pairs)
+            cost[~supported] = 1.0
         return np.clip(cost, 0, 1)
 
     def _apply_gmc(self, img: np.ndarray, detections: list, pools: list[list[TTSTrack]]) -> None:
@@ -436,7 +458,21 @@ class TRACKTRACK:
             multi_gmc(pool, warp)
 
     def update(self, results, img: np.ndarray | None = None, dets_del=None, **kwargs) -> np.ndarray:
-        """Advance the tracker by one frame and return an `(N, 8)` array of `[x1, y1, x2, y2, id, score, cls, idx]`."""
+        """Advance the tracker by one frame and return the tracks updated in this frame.
+
+        Args:
+            results (Any): NumPy-backed detections (e.g. `Boxes` or `OBB` after `.cpu().numpy()`) exposing `conf`,
+                `cls`, and `xywh` (or `xywhr`), and supporting boolean indexing.
+            img (np.ndarray | None): Current BGR frame, used for GMC and external ReID models.
+            dets_del (tuple[np.ndarray, np.ndarray, np.ndarray] | None): Optional `(xywh, conf, cls)` detections
+                (`xywhr` for OBB) dropped by tight NMS and recovered with a looser NMS, used as extra
+                low-priority candidates.
+            **kwargs (Any): Additional inputs; `feats` supplies per-detection features for native (`model="auto"`) ReID.
+
+        Returns:
+            (np.ndarray): Array of shape (N, 8) with `[x1, y1, x2, y2, track_id, score, cls, idx]` rows, or (N, 9) with
+                `[x, y, w, h, angle, track_id, score, cls, idx]` rows for OBB.
+        """
         self.frame_id += 1
         activated, refind, lost, removed = [], [], [], []
 
@@ -448,6 +484,7 @@ class TRACKTRACK:
         def _new_track(box, score, cls, feat=None):
             track = TTSTrack(box, score, cls, feat) if feat is not None else TTSTrack(box, score, cls)
             track.min_track_len = self.min_track_len
+            track.next_id = self._ids.__next__  # IDs are per tracker, so other trackers cannot reissue them
             return track
 
         high_boxes, high_scores, high_cls = boxes[high_mask], scores[high_mask], results.cls[high_mask]
@@ -475,14 +512,16 @@ class TRACKTRACK:
                 del_boxes = np.concatenate([del_xywh[mask], -np.ones((mask.sum(), 1))], axis=-1)
                 dets_recovered = [_new_track(b, s, c) for b, s, c in zip(del_boxes, del_conf[mask], del_cls[mask])]
 
+        # Route by state: frame-1 tracks are visible (is_activated) but still New, so they must stay unconfirmed
         unconfirmed, tracked = [], []
         for track in self.tracked_stracks:
-            (unconfirmed if not track.is_activated else tracked).append(track)
+            (tracked if track.state == TrackState.Tracked else unconfirmed).append(track)
         pool = joint_stracks(tracked, self.lost_stracks)
 
-        if img is not None:
+        if img is not None and self.gmc.method is not None:
             self._apply_gmc(img, dets_high, [pool, unconfirmed])
         TTSTrack.multi_predict(pool)
+        TTSTrack.multi_predict(unconfirmed)
 
         # Main association: pool vs (high + low + recovered) detections, with per-bucket cost penalties.
         all_dets = dets_high + dets_low + dets_recovered
@@ -558,11 +597,11 @@ class TRACKTRACK:
         )
 
     def reset(self) -> None:
-        """Clear all tracker state including GMC warp history and the global ID counter."""
+        """Clear all tracker state including GMC warp history and the track ID counter."""
         self.tracked_stracks = []
         self.lost_stracks = []
         self.removed_stracks = []
         self.frame_id = 0
         self.kalman_filter = KalmanFilterXYWH()
-        TTSTrack.reset_id()
+        self._ids = iter(range(1, sys.maxsize))
         self.gmc.reset_params()

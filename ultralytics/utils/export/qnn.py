@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ultralytics.utils import LOGGER, WINDOWS
+from ultralytics.utils import LOGGER, QNN_HTP_TARGETS, WINDOWS
 from ultralytics.utils.checks import check_requirements
 
 
@@ -41,7 +41,6 @@ def onnx2qnn(
     transform_fn,
     name: str = "73",
     metadata: dict | None = None,
-    batch: int = 0,
     prefix: str = "",
 ) -> str:
     """Convert an ONNX model to a Qualcomm QNN context binary using the ONNX Runtime QNN Execution Provider.
@@ -60,16 +59,17 @@ def onnx2qnn(
         transform_fn (Callable): Preprocessing transform (`Exporter._transform_fn`) converting a calibration item to a
             normalized `float32` NCHW array.
         name (str): Target Hexagon Tensor Processor (HTP) architecture version, e.g. `"73"` (Snapdragon 8 Gen 2), `"75"`
-            (8 Gen 3), `"79"` (8 Elite). Finalizes the graph for the target chip when exporting on a host without a
-            Snapdragon NPU.
+            (8 Gen 3), `"79"` (8 Elite), or supported SoC name such as `"iq-8275"`. Finalizes the graph for the target
+            chip when exporting on a host without a Snapdragon NPU.
         metadata (dict | None): Ultralytics model metadata ensured present in the context model's `metadata_props` (ONNX
             Runtime normally carries the source model's metadata through, but this is not a documented guarantee).
-        batch (int): Static batch dimension of the ONNX graph used to tile undersized calibration batches, or 0 for
-            dynamic-batch models.
         prefix (str): Prefix for log messages.
 
     Returns:
         (str): Path to the exported `*_qnn.onnx` file.
+
+    Raises:
+        RuntimeError: If no QNN devices are found after plugin registration, or the context binary is not generated.
 
     Notes:
         `onnxruntime-qnn` wheels may expose QNN either as a plugin library or as a built-in ONNX Runtime provider.
@@ -90,7 +90,7 @@ def onnx2qnn(
     pre_file = ctx_file.with_name(f"{onnx_file.stem}_qnn_preprocessed.onnx")
     qdq_file = ctx_file.with_name(f"{onnx_file.stem}_qnn_qdq.onnx")
 
-    LOGGER.info(f"\n{prefix} starting W8A16 quantization and export with ONNX Runtime QNN (HTP arch {name})...")
+    LOGGER.info(f"\n{prefix} starting W8A16 quantization and export with ONNX Runtime QNN (HTP target {name})...")
     import onnx
 
     dims = [d.dim_value for d in onnx.load(str(onnx_file)).graph.input[0].type.tensor_type.shape.dim]
@@ -106,27 +106,24 @@ def onnx2qnn(
         # 16-bit activations + 8-bit weights is the ORT-recommended accuracy/perf balance for the HTP backend
         qdq_config = get_qnn_qdq_config(
             str(pre_file),
-            onnx_calibration_reader(dataset, transform_fn, batch=batch),
+            onnx_calibration_reader(dataset, transform_fn),
             activation_type=QuantType.QUInt16,
             weight_type=QuantType.QUInt8,
         )
         quantize(str(pre_file), str(qdq_file), qdq_config)
 
         # Register the QNN EP, then compile the quantized graph to a context binary during session init (no inference
-        # run). htp_arch targets the chip so the graph finalizes offline on a host without an NPU, and the
-        # shared-memory allocator is disabled (no device present). ONNX Runtime's htp_arch parser accepts
-        # 68/69/73/75/81 but not 79 (invalid values only log a warning, leaving the graph untargeted), so v79
-        # (Snapdragon 8 Elite) is targeted via its SoC model instead.
+        # run). The provider target finalizes the graph offline on a host without an NPU, and the shared-memory allocator
+        # is disabled (no device present). Targets not exposed by ONNX Runtime's htp_arch parser are finalized through
+        # their QNN SoC model instead.
         ep_name = "QNNExecutionProvider"
         ep_options = {
             "backend_path": htp_backend,
             "htp_graph_finalization_optimization_mode": "3",
             "enable_htp_shared_memory_allocator": "0",
         }
-        if name == "79":
-            ep_options["soc_model"] = "69"  # SM8750 (Snapdragon 8 Elite) -> HTP v79
-        else:
-            ep_options["htp_arch"] = name
+        option, value = QNN_HTP_TARGETS[name]
+        ep_options[option] = value
         options = ort.SessionOptions()
         options.add_session_config_entry("ep.context_enable", "1")
         options.add_session_config_entry("ep.context_file_path", str(ctx_file))

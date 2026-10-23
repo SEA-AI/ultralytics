@@ -32,7 +32,8 @@ class Heatmap(ObjectCounter):
         >>> from ultralytics.solutions import Heatmap
         >>> heatmap = Heatmap(model="yolo26n.pt", colormap=cv2.COLORMAP_JET)
         >>> frame = cv2.imread("frame.jpg")
-        >>> processed_frame = heatmap.process(frame)
+        >>> results = heatmap.process(frame)
+        >>> heatmap_frame = results.plot_im
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -83,7 +84,8 @@ class Heatmap(ObjectCounter):
         Returns:
             (SolutionResults): Contains processed image `plot_im`, 'in_count' (int, count of objects entering the
                 region), 'out_count' (int, count of objects exiting the region), 'classwise_count' (dict, per-class
-                object count), and 'total_tracks' (int, total number of tracked objects).
+            {"IN": int, "OUT": int} counts), and 'total_tracks' (int, total number of tracked objects). Counts are only
+                updated when a `region` is provided.
         """
         if not self.initialized:
             self.heatmap = np.zeros(im0.shape[:2], dtype=np.float32)
@@ -92,13 +94,15 @@ class Heatmap(ObjectCounter):
         self.extract_tracks(im0)  # Extract tracks
         self.annotator = SolutionAnnotator(im0, line_width=self.line_width)  # Initialize annotator
 
+        if self.region is not None:
+            self.annotator.draw_region(reg_pts=self.region, color=(104, 0, 123), thickness=self.line_width * 2)
+
         # Iterate over bounding boxes, track ids and classes index
         for box, track_id, cls in zip(self.boxes, self.track_ids, self.clss):
             # Apply heatmap effect for the bounding box
             self.heatmap_effect(box)
 
             if self.region is not None:
-                self.annotator.draw_region(reg_pts=self.region, color=(104, 0, 123), thickness=self.line_width * 2)
                 self.store_tracking_history(track_id, box)  # Store track history
                 # Get previous position if available
                 prev_position = None
@@ -111,7 +115,7 @@ class Heatmap(ObjectCounter):
             self.display_counts(plot_im)  # Display the counts on the frame
 
         # Normalize, apply colormap to heatmap and combine with original image
-        if self.track_data.is_track:
+        if self.heatmap.any():
             normalized_heatmap = cv2.normalize(self.heatmap, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
             colored_heatmap = cv2.applyColorMap(normalized_heatmap, self.colormap)
             plot_im = cv2.addWeighted(plot_im, 0.5, colored_heatmap, 0.5, 0)

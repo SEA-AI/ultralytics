@@ -6,6 +6,7 @@ from collections import abc
 from itertools import repeat
 from numbers import Number
 
+import cv2
 import numpy as np
 
 from .ops import ltwh2xywh, ltwh2xyxy, resample_segments, xywh2ltwh, xywh2xyxy, xyxy2ltwh, xyxy2xywh
@@ -100,12 +101,12 @@ class Bboxes:
             else self.bboxes[:, 3] * self.bboxes[:, 2]  # format xywh or ltwh
         )
 
-    def mul(self, scale: int | tuple | list) -> None:
+    def mul(self, scale: float | tuple | list) -> None:
         """Multiply bounding box coordinates by scale factor(s).
 
         Args:
-            scale (int | tuple | list): Scale factor(s) for four coordinates. If int, the same scale is applied to all
-                coordinates.
+            scale (int | float | tuple | list): Scale factor(s) for four coordinates. If a single number, the same scale
+                is applied to all coordinates.
         """
         if isinstance(scale, Number):
             scale = to_4tuple(scale)
@@ -116,12 +117,12 @@ class Bboxes:
         self.bboxes[:, 2] *= scale[2]
         self.bboxes[:, 3] *= scale[3]
 
-    def add(self, offset: int | tuple | list) -> None:
+    def add(self, offset: float | tuple | list) -> None:
         """Add offset to bounding box coordinates.
 
         Args:
-            offset (int | tuple | list): Offset(s) for four coordinates. If int, the same offset is applied to all
-                coordinates.
+            offset (int | float | tuple | list): Offset(s) for four coordinates. If a single number, the same offset is
+                applied to all coordinates.
         """
         if isinstance(offset, Number):
             offset = to_4tuple(offset)
@@ -145,19 +146,20 @@ class Bboxes:
             axis (int, optional): The axis along which to concatenate the bounding boxes.
 
         Returns:
-            (Bboxes): A new Bboxes object containing the concatenated bounding boxes.
+            (Bboxes): A new Bboxes object containing the concatenated bounding boxes, or the input object itself if the
+                list has a single element.
 
         Notes:
-            The input should be a list or tuple of Bboxes objects.
+            The input should be a list or tuple of Bboxes objects sharing the same format, which the result keeps.
         """
         assert isinstance(boxes_list, (list, tuple))
         if not boxes_list:
-            return cls(np.empty(0))
+            return cls(np.empty((0, 4)))
         assert all(isinstance(box, Bboxes) for box in boxes_list)
 
         if len(boxes_list) == 1:
             return boxes_list[0]
-        return cls(np.concatenate([b.bboxes for b in boxes_list], axis=axis))
+        return cls(np.concatenate([b.bboxes for b in boxes_list], axis=axis), format=boxes_list[0].format)
 
     def __getitem__(self, index: int | np.ndarray | slice) -> Bboxes:
         """Retrieve a specific bounding box or a set of bounding boxes using indexing.
@@ -172,11 +174,11 @@ class Bboxes:
             When using boolean indexing, make sure to provide a boolean array with the same length as the number of
             bounding boxes.
         """
-        if isinstance(index, int):
-            return Bboxes(self.bboxes[index].reshape(1, -1))
         b = self.bboxes[index]
+        if b.ndim == 1:
+            b = b.reshape(1, -1)
         assert b.ndim == 2, f"Indexing on Bboxes with {index} failed to return a matrix!"
-        return Bboxes(b)
+        return Bboxes(b, format=self.format)
 
 
 class Instances:
@@ -188,8 +190,8 @@ class Instances:
 
     Attributes:
         _bboxes (Bboxes): Internal object for handling bounding box operations.
-        keypoints (np.ndarray): Keypoints with shape (N, 17, 3) in format (x, y, visible).
-        normalized (bool): Flag indicating whether the bounding box coordinates are normalized.
+        keypoints (np.ndarray | None): Keypoints with shape (N, K, 3) in format (x, y, visible), e.g. K=17 for COCO.
+        normalized (bool): Flag indicating whether the coordinates are normalized.
         segments (np.ndarray): Segments array with shape (N, M, 2) after resampling.
 
     Methods:
@@ -209,16 +211,18 @@ class Instances:
         Create instances with bounding boxes and segments
         >>> instances = Instances(
         ...     bboxes=np.array([[10, 10, 30, 30], [20, 20, 40, 40]]),
-        ...     segments=[np.array([[5, 5], [10, 10]]), np.array([[15, 15], [20, 20]])],
-        ...     keypoints=np.array([[[5, 5, 1], [10, 10, 1]], [[15, 15, 1], [20, 20, 1]]]),
+        ...     segments=np.array([[[5, 5], [10, 10]], [[15, 15], [20, 20]]], dtype=np.float32),
+        ...     keypoints=np.array([[[5, 5, 1], [10, 10, 1]], [[15, 15, 1], [20, 20, 1]]], dtype=np.float32),
+        ...     bbox_format="xyxy",
+        ...     normalized=False,
         ... )
     """
 
     def __init__(
         self,
         bboxes: np.ndarray,
-        segments: np.ndarray = None,
-        keypoints: np.ndarray = None,
+        segments: np.ndarray | None = None,
+        keypoints: np.ndarray | None = None,
         bbox_format: str = "xywh",
         normalized: bool = True,
     ) -> None:
@@ -226,15 +230,15 @@ class Instances:
 
         Args:
             bboxes (np.ndarray): Bounding boxes with shape (N, 4).
-            segments (np.ndarray, optional): Segmentation masks.
-            keypoints (np.ndarray, optional): Keypoints with shape (N, 17, 3) in format (x, y, visible).
-            bbox_format (str): Format of bboxes.
+            segments (np.ndarray, optional): Segment polygons with shape (N, M, 2), where M is the number of points.
+            keypoints (np.ndarray, optional): Keypoints with shape (N, K, 3) in format (x, y, visible).
+            bbox_format (str): Format of bboxes, one of 'xyxy', 'xywh', or 'ltwh'.
             normalized (bool): Whether the coordinates are normalized.
         """
         self._bboxes = Bboxes(bboxes=bboxes, format=bbox_format)
         self.keypoints = keypoints
         self.normalized = normalized
-        self.segments = segments
+        self.segments = segments if segments is not None else np.zeros((0, 0, 2), dtype=np.float32)
 
     def convert_bbox(self, format: str) -> None:
         """Convert bounding box format.
@@ -246,7 +250,7 @@ class Instances:
 
     @property
     def bbox_areas(self) -> np.ndarray:
-        """Calculate the area of bounding boxes."""
+        """Return the areas of the bounding boxes."""
         return self._bboxes.areas()
 
     def scale(self, scale_w: float, scale_h: float, bbox_only: bool = False):
@@ -304,8 +308,8 @@ class Instances:
         """Add padding to coordinates.
 
         Args:
-            padw (int): Padding width.
-            padh (int): Padding height.
+            padw (int): Horizontal padding added to x coordinates.
+            padh (int): Vertical padding added to y coordinates.
         """
         assert not self.normalized, "you should add padding with absolute coordinates."
         self._bboxes.add(offset=(padw, padh, padw, padh))
@@ -323,11 +327,8 @@ class Instances:
 
         Returns:
             (Instances): A new Instances object containing the selected boxes, segments, and keypoints if present.
-
-        Notes:
-            When using boolean indexing, make sure to provide a boolean array with the same length as the number of
-            instances.
         """
+        index = [index] if isinstance(index, (int, np.integer)) else index
         segments = self.segments[index] if len(self.segments) else self.segments
         keypoints = self.keypoints[index] if self.keypoints is not None else None
         bboxes = self.bboxes[index]
@@ -351,6 +352,8 @@ class Instances:
             y2 = self.bboxes[:, 3].copy()
             self.bboxes[:, 1] = h - y2
             self.bboxes[:, 3] = h - y1
+        elif self._bboxes.format == "ltwh":
+            self.bboxes[:, 1] = h - self.bboxes[:, 1] - self.bboxes[:, 3]
         else:
             self.bboxes[:, 1] = h - self.bboxes[:, 1]
         self.segments[..., 1] = h - self.segments[..., 1]
@@ -368,27 +371,64 @@ class Instances:
             x2 = self.bboxes[:, 2].copy()
             self.bboxes[:, 0] = w - x2
             self.bboxes[:, 2] = w - x1
+        elif self._bboxes.format == "ltwh":
+            self.bboxes[:, 0] = w - self.bboxes[:, 0] - self.bboxes[:, 2]
         else:
             self.bboxes[:, 0] = w - self.bboxes[:, 0]
         self.segments[..., 0] = w - self.segments[..., 0]
         if self.keypoints is not None:
             self.keypoints[..., 0] = w - self.keypoints[..., 0]
 
-    def clip(self, w: int, h: int) -> None:
+    def clip(self, w: int, h: int, preserve_obb: bool = False) -> None:
         """Clip coordinates to stay within image boundaries.
+
+        Keypoints outside the image get zero visibility before being clipped.
 
         Args:
             w (int): Image width.
             h (int): Image height.
+            preserve_obb (bool): Preserve oriented-box direction while clipping segments: each segment extending outside
+                the image is replaced by the rectangle, aligned with its original orientation, that bounds its visible
+                part, and its box by the axis-aligned bounds of that visible part.
         """
         ori_format = self._bboxes.format
         self.convert_bbox(format="xyxy")
-        self.bboxes[:, [0, 2]] = self.bboxes[:, [0, 2]].clip(0, w)
-        self.bboxes[:, [1, 3]] = self.bboxes[:, [1, 3]].clip(0, h)
+        if preserve_obb and len(self.segments):
+            segment_mins, segment_maxs = self.segments.min(1), self.segments.max(1)
+            inside = ((segment_mins >= 0) & (segment_maxs <= (w, h))).all(1)
+            if not inside.all():
+                canvas = np.array(((0, 0), (w, 0), (w, h), (0, h)), dtype=np.float32)
+                bboxes, segments = self.bboxes.copy(), self.segments.copy()
+                for i in np.flatnonzero(~inside):
+                    segment = self.segments[i]
+                    visible_area, visible = cv2.intersectConvexConvex(
+                        cv2.convexHull(segment.astype(np.float32)), canvas
+                    )
+                    if visible is None or visible_area <= 0:
+                        bboxes[i], segments[i] = 0, 0
+                        continue
+                    visible = visible.reshape(-1, 2)
+                    bboxes[i] = np.array((*visible.min(0), *visible.max(0)), dtype=segment.dtype)
+
+                    # Fit the visible polygon in the full box's coordinates so edge crops cannot change its angle.
+                    (_, _), (box_w, box_h), angle = cv2.minAreaRect(segment.astype(np.float32))
+                    if box_w < box_h:
+                        angle += 90
+                    angle = np.deg2rad(angle)
+                    cos, sin = np.cos(angle), np.sin(angle)
+                    basis = np.array(((cos, -sin), (sin, cos)), dtype=np.float32)
+                    aligned = visible @ basis
+                    (u1, v1), (u2, v2) = aligned.min(0), aligned.max(0)
+                    corners = np.array(((u2, v2), (u2, v1), (u1, v1), (u1, v2)), dtype=np.float32)
+                    segments[i] = resample_segments([corners @ basis.T], n=len(segment))[0]
+                self.update(bboxes, segments)
+        else:
+            self.bboxes[:, [0, 2]] = self.bboxes[:, [0, 2]].clip(0, w)
+            self.bboxes[:, [1, 3]] = self.bboxes[:, [1, 3]].clip(0, h)
+            self.segments[..., 0] = self.segments[..., 0].clip(0, w)
+            self.segments[..., 1] = self.segments[..., 1].clip(0, h)
         if ori_format != "xyxy":
             self.convert_bbox(format=ori_format)
-        self.segments[..., 0] = self.segments[..., 0].clip(0, w)
-        self.segments[..., 1] = self.segments[..., 1].clip(0, h)
         if self.keypoints is not None:
             # Set out of bounds visibility to zero
             self.keypoints[..., 2][
@@ -415,7 +455,7 @@ class Instances:
                 self.keypoints = self.keypoints[good]
         return good
 
-    def update(self, bboxes: np.ndarray, segments: np.ndarray = None, keypoints: np.ndarray = None):
+    def update(self, bboxes: np.ndarray, segments: np.ndarray | None = None, keypoints: np.ndarray | None = None):
         """Update instance variables.
 
         Args:
@@ -434,7 +474,7 @@ class Instances:
         return len(self.bboxes)
 
     @classmethod
-    def concatenate(cls, instances_list: list[Instances], axis=0) -> Instances:
+    def concatenate(cls, instances_list: list[Instances], axis: int = 0) -> Instances:
         """Concatenate a list of Instances objects into a single Instances object.
 
         Args:
@@ -451,7 +491,7 @@ class Instances:
         """
         assert isinstance(instances_list, (list, tuple))
         if not instances_list:
-            return cls(np.empty(0))
+            return cls(np.empty((0, 4)))
         assert all(isinstance(instance, Instances) for instance in instances_list)
 
         if len(instances_list) == 1:

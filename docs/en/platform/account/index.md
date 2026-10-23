@@ -17,7 +17,7 @@ keywords: Ultralytics Platform, account, settings, API keys, billing, security, 
     allowfullscreen>
   </iframe>
   <br>
-  <strong>Watch: </strong> Get Started with Ultralytics Platform - Account
+  <strong>Watch:</strong> Get Started with Ultralytics Platform - Account
 </p>
 
 ## Overview
@@ -26,39 +26,42 @@ The Account section helps you:
 
 - **Configure** your profile, social links, and workspace preferences
 - **Create** and manage API keys for remote training and programmatic access
-- **Track** credit balance, payments, and billing
+- **Track** credit balance, spend, payments, and billing
 - **Collaborate** with team members using shared workspaces
 - **Monitor** account activity and audit events
 - **Recover** deleted items from Trash within 30 days
 - **Export** your data for GDPR compliance
 
-![Ultralytics Platform Settings Page Profile Tab With Social Links](https://cdn.ul.run/i/c120c6006049504700c1ad82a6e8b11b.avif)<!-- screenshot -->
+![Ultralytics Platform Settings Page Profile Tab With Social Links](https://cdn.ul.run/i/25a3075d0bce50c69d1524decb80d67c.avif)<!-- screenshot -->
 
 ## Account Features
 
 | Feature      | Description                                                 |
 | ------------ | ----------------------------------------------------------- |
-| **Settings** | Profile, emails, social links, and data region              |
+| **Settings** | Profile, email, social links, and data region               |
 | **API Keys** | Generate AES-256-GCM encrypted keys for programmatic access |
 | **Plans**    | Free, Pro, and Enterprise plan comparison                   |
 | **Billing**  | Credits, payment methods, and transaction history           |
+| **Usage**    | Spend charts, usage events, and storage breakdown           |
 | **Teams**    | Members, roles, invites, and seat management                |
 | **Trash**    | Recover deleted items within 30 days                        |
 | **Activity** | Event log with inbox, archive, search, and undo             |
 
 ## Settings Tabs
 
-Account management is organized into seven tabs within `Settings` (in order):
+Account management is organized into nine tabs within `Settings` (in order):
 
-| Tab            | Description                                                                                                   |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `Profile`      | Display name, bio, company, use case, emails, social links, data region                                       |
-| `API Keys`     | Create and manage API keys for remote training and programmatic access                                        |
-| `Plans`        | Compare Free, Pro, and Enterprise plans                                                                       |
-| `Billing`      | Credit balance, top-up, payment methods, transactions                                                         |
-| `Teams`        | Member list, roles, invites, seat allocation                                                                  |
-| `Integrations` | Connect cloud or On Premise storage and compute, Slack notifications, and Ultralytics HUB or Roboflow imports |
-| `Trash`        | Soft-deleted projects, datasets, and models (30-day recovery)                                                 |
+| Tab            | Description                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `Profile`      | Display name, bio, company, use case, email, social links, data region, connected accounts |
+| `API Keys`     | Create and manage API keys for remote training and programmatic access                     |
+| `Plans`        | Compare Free, Pro, and Enterprise plans                                                    |
+| `Billing`      | Credit balance, top-ups, promo codes, payment methods, billing address, transactions       |
+| `Usage`        | Spend over time, usage events, and storage breakdown for the active workspace              |
+| `Referrals`    | Personal referral link and the $10 credit earned once a referred friend tops up $10        |
+| `Teams`        | Member list, roles, invites, seat allocation, and the permission matrix                    |
+| `Integrations` | Connect cloud or On Premise storage and compute, Slack notifications, and dataset imports  |
+| `Trash`        | Soft-deleted projects, datasets, and models (30-day recovery)                              |
 
 ## Security
 
@@ -68,7 +71,7 @@ Ultralytics Platform implements multiple security measures:
 
 - **OAuth**: Sign in with Google or GitHub
 - **Email/password**: Sign in with email and password
-- **Session management**: Clerk-managed sessions shared across Ultralytics subdomains
+- **Session management**: Sessions shared across Ultralytics subdomains
 
 ### Data Protection
 
@@ -79,7 +82,8 @@ Ultralytics Platform implements multiple security measures:
 
 ### Access Control
 
-- **Per-key management**: Create and revoke API keys per workspace
+- **Owner-only API keys**: Only the workspace owner can create, view, or revoke a workspace's API keys, because a
+  workspace key acts as the owner
 - **Team roles**: Owner, Admin, Editor, and Viewer roles (Pro and Enterprise)
 - **Audit logging**: Track all account activity in the Activity feed
 
@@ -100,24 +104,25 @@ Usernames cannot be changed after account creation. Your username is set during 
 
 ### How do I change my email?
 
-Manage your email addresses directly on the platform:
-
-1. Go to `Settings > Profile`
-2. Scroll to the **Emails** section
-3. Add a new email, verify it, and set it as primary
+Change it in the **Email** card of `Settings > Profile` by confirming a 6-digit code sent to the new address. See
+[Settings](settings.md#email).
 
 ### How do I delete my account?
 
 Account deletion is available in Settings:
 
 1. Go to `Settings > Profile`
-2. Scroll to the bottom
+2. Scroll to the **Delete My Account** card at the bottom
 3. Click **Delete My Account**
 4. Type `DELETE` to confirm, then click **Delete My Account**
 
+In a team workspace the same card reads **Delete Team** and is visible only to the team owner. Remove every non-owner
+member first; the team's resources are deleted automatically.
+
 !!! warning "Permanent Action"
 
-    Account deletion is permanent. All data, models, and deployments are removed. Export your data first if needed.
+    Account deletion is permanent. All data, models, and deployments are removed, along with any remaining credit
+    balance. Export your data first if needed.
 
 ### Is my data secure?
 

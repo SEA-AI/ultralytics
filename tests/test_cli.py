@@ -1,5 +1,6 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+import json
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,32 @@ def test_special_modes() -> None:
     run("yolo cfg")
 
 
+@pytest.mark.parametrize("api_key", ["legacy_api_key", "ul_" + "a" * 40])
+def test_settings_migration(tmp_path: Path, api_key: str) -> None:
+    """Verify schema migration preserves user settings and only retains Platform API keys."""
+    from ultralytics.utils import SettingsManager
+
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text(
+        json.dumps(
+            {
+                "settings_version": "0.0.7",
+                "runs_dir": "/custom/runs",
+                "api_key": api_key,
+                "hub": True,
+                "neptune": True,
+            }
+        )
+    )
+    settings = SettingsManager(settings_file)
+
+    assert settings["runs_dir"] == "/custom/runs"
+    assert settings["api_key"] == (api_key if api_key.startswith("ul_") else "")
+    assert settings["settings_version"] == "0.0.8"
+    assert "hub" not in settings
+    assert "neptune" not in settings
+
+
 def test_cli_imports_defer_torchvision() -> None:
     """Verify startup imports do not load torchvision or SAM3 geometry."""
     code = (
@@ -50,15 +77,15 @@ def test_train(task: str, model: str, data: str) -> None:
 @pytest.mark.parametrize("task,model,data", TASK_MODEL_DATA)
 def test_val(task: str, model: str, data: str) -> None:
     """Test YOLO validation process for specified task, model, and data using a shell command."""
-    for end2end in (False, True):
-        run(f"yolo val {task} model={model} data={data} imgsz=32 end2end={end2end} max_det=100 agnostic_nms")
+    for nms in (None, False):
+        run(f"yolo val {task} model={model} data={data} imgsz=32 nms={nms} max_det=100 agnostic_nms")
 
 
 @pytest.mark.parametrize("task,model,data", TASK_MODEL_DATA)
 def test_predict(task: str, model: str, data: str) -> None:
     """Test YOLO prediction on provided sample assets for specified task and model."""
-    for end2end in (False, True):
-        run(f"yolo {task} predict model={model} source={ASSETS} imgsz=32 save end2end={end2end} max_det=100")
+    for nms in (None, False):
+        run(f"yolo {task} predict model={model} source={ASSETS} imgsz=32 save nms={nms} max_det=100")
 
 
 @pytest.mark.parametrize("model", MODELS)
@@ -68,8 +95,8 @@ def test_export(model: str, tmp_path: Path) -> None:
 
     isolated = tmp_path / model
     shutil.copy(Path(attempt_download_asset(model)), isolated)
-    for end2end in (False, True):
-        run(f"yolo export model={isolated} format=torchscript imgsz=32 end2end={end2end} max_det=100")
+    for nms in (None, False):
+        run(f"yolo export model={isolated} format=torchscript imgsz=32 nms={nms} max_det=100")
 
 
 @pytest.mark.parametrize(
@@ -123,6 +150,9 @@ def test_fastsam(
     for s in (source, Image.open(source)):
         everything_results = sam_model(s, device="cpu", retina_masks=True, imgsz=160, conf=0.4, iou=0.9)
 
+        prompted = sam_model.predictor.prompt(everything_results, points=[[400, 500], [400, 400]], labels=[0, 1])[0]
+        assert not prompted.masks.data[:, 500, 400].any()  # negative points must exclude masks regardless of order
+
         # Remove small regions
         _new_masks, _ = Predictor.remove_small_regions(everything_results[0].masks.data, min_area=20)
 
@@ -132,6 +162,8 @@ def test_fastsam(
 
 def test_mobilesam() -> None:
     """Test MobileSAM segmentation with point and box prompts using Ultralytics."""
+    import numpy as np
+
     from ultralytics import SAM
 
     # Load the model
@@ -148,6 +180,14 @@ def test_mobilesam() -> None:
 
     # Predict a segment based on a box prompt
     model.predict(source, bboxes=[439, 437, 524, 709], save=True)
+
+    # A box prompt applies to every image of a directory source, not only the first
+    assert [len(r.masks) for r in model(ASSETS, bboxes=[439, 437, 524, 709])] == [1, 1]
+
+    # Mask-refinement logits must retain negative background and fractional foreground values.
+    mask = np.array([[-2.5, 0.25], [1.5, -0.75]], dtype=np.float32)
+    prepared = model.predictor._prepare_prompts((1024, 1024), (2, 2), masks=mask)[-1]
+    assert prepared[0, 0, ::512, ::512].cpu().tolist() == mask.tolist()
 
     # Predict all
     # model(source)
@@ -168,6 +208,7 @@ def test_train_gpu(task: str, model: str, data: str) -> None:
     "solution",
     ["count", "blur", "workout", "heatmap", "isegment", "visioneye", "speed", "queue", "analytics", "trackzone"],
 )
-def test_solutions(solution: str) -> None:
+def test_solutions(solution: str, solution_assets) -> None:
     """Test yolo solutions command-line modes."""
-    run(f"yolo solutions {solution} verbose=False")
+    source = solution_assets("pose_video" if solution == "workout" else "demo_video")
+    run(f"yolo solutions {solution} verbose=False source={source}")

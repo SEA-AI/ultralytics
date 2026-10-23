@@ -7,7 +7,7 @@ keywords: COCO to YOLO, convert COCO JSON to YOLO, COCO JSON format, YOLO annota
 
 # How to Convert COCO Annotations to YOLO Format
 
-Training [Ultralytics YOLO](https://www.ultralytics.com/) models requires annotations in YOLO format, but many popular [annotation](https://www.ultralytics.com/glossary/data-labeling) tools export in [COCO JSON](https://cocodataset.org/#format-data) format instead. This guide shows you how to convert your COCO annotations to YOLO format and start training [object detection](https://www.ultralytics.com/glossary/object-detection), [instance segmentation](https://www.ultralytics.com/glossary/instance-segmentation), and [pose estimation](https://www.ultralytics.com/glossary/pose-estimation) models.
+Training [Ultralytics YOLO](https://www.ultralytics.com) models requires annotations in YOLO format, but many popular [annotation](https://www.ultralytics.com/glossary/data-labeling) tools export in [COCO JSON](https://cocodataset.org/#format-data) format instead. This guide shows you how to convert your COCO annotations to YOLO format and start training [object detection](https://www.ultralytics.com/glossary/object-detection), [instance segmentation](https://www.ultralytics.com/glossary/instance-segmentation), and [pose estimation](https://www.ultralytics.com/glossary/pose-estimation) models.
 
 !!! tip "Prefer to skip conversion?"
 
@@ -21,13 +21,13 @@ The COCO JSON format stores all annotations in a single file, while [YOLO](../da
 - **COCO JSON uses pixel coordinates** in `[x_min, y_min, width, height]` format with a single JSON file for all images.
 - **Class IDs differ** — COCO uses arbitrary `category_id` values, while YOLO requires zero-indexed class IDs.
 
-| Feature          | COCO JSON                                 | YOLO TXT                                                |
-| ---------------- | ----------------------------------------- | ------------------------------------------------------- |
-| **Structure**    | Single JSON file for all images           | One `.txt` file per image                               |
-| **Bbox format**  | `[x_min, y_min, width, height]` in pixels | `class x_center y_center width height` normalized (0-1) |
-| **Class IDs**    | `category_id` (can start from any number) | Zero-indexed (starts from 0)                            |
-| **Segmentation** | Polygon arrays in `segmentation` field    | Polygon coordinates after class ID                      |
-| **Keypoints**    | `[x, y, visibility, ...]` in pixels       | `[x, y, visibility, ...]` normalized                    |
+| Feature          | COCO JSON                                           | YOLO TXT                                                |
+| ---------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| **Structure**    | Single JSON file for all images                     | One `.txt` file per image                               |
+| **Bbox format**  | `[x_min, y_min, width, height]` in pixels           | `class x_center y_center width height` normalized (0-1) |
+| **Class IDs**    | `category_id` (can start from any number)           | Zero-indexed (starts from 0)                            |
+| **Segmentation** | Polygon arrays or RLE masks in `segmentation` field | Polygon coordinates after class ID                      |
+| **Keypoints**    | `[x, y, visibility, ...]` in pixels                 | `[x, y, visibility, ...]` normalized                    |
 
 ## Quick Start
 
@@ -140,6 +140,7 @@ Use the [`convert_coco()`](../reference/data/converter.md#ultralytics.data.conve
 
 ```text
 my_dataset/converted/
+├── images/      # created but left empty
 └── labels/
     ├── train/   # from instances_train.json
     │   ├── img_001.txt
@@ -285,13 +286,13 @@ for line in label_file.read_text().strip().splitlines():
 
 ### Wrong Class IDs After Conversion
 
-If your model trains but detects wrong object classes, you're likely using `cls91to80=True` (default) on a custom dataset. This maps your `category_id` values through the COCO 91-to-80 lookup table, which is only correct for the standard [COCO dataset](../datasets/detect/coco.md).
+If your model trains but detects wrong object classes, you're likely using `cls91to80=True` (default) on a custom dataset. This maps your `category_id` values through the COCO 91-to-80 lookup table, which is only correct for the standard [COCO dataset](../datasets/detect/coco.md). A `category_id` with no COCO-80 counterpart maps to nothing and raises `TypeError: must be real number, not NoneType` during conversion instead of producing wrong labels.
 
 **Solution**: Always use `cls91to80=False` for custom datasets.
 
 ### No Labels Found During Training
 
-If training shows `WARNING: No labels found` or `0 images, N backgrounds`, your label files are not in the expected directory. `convert_coco()` saves labels to a separate output directory (e.g., `save_dir/labels/train/`), but YOLO expects `labels/` parallel to `images/` inside your dataset directory.
+If the label scan reports `0 images, N backgrounds` and training then aborts with `ValueError: train: No labels found in .../labels/train.cache`, your label files are not in the expected directory. `convert_coco()` saves labels to a separate output directory (e.g., `save_dir/labels/train/`), but YOLO expects `labels/` parallel to `images/` inside your dataset directory.
 
 **Solution**: Move label files to match the expected [directory structure](#3-organize-directory-structure). Make sure `labels/train/` is a sibling of `images/train/`.
 
@@ -303,9 +304,17 @@ If you get `KeyError: 'bbox'` or similar errors when running `convert_coco()`, y
 
 ### Empty Label Files After Conversion
 
-If conversion completes but `.txt` files are empty or missing, all annotations may have `iscrowd: 1` (common with [SAM](../models/sam.md)-generated masks), or [bounding boxes](https://www.ultralytics.com/glossary/bounding-box) have zero width or height.
+If conversion completes but `.txt` files are empty or missing, all annotations may have `iscrowd: 1`, which `convert_coco()` skips (CVAT, for example, exports mask annotations as crowd regions), or [bounding boxes](https://www.ultralytics.com/glossary/bounding-box) have zero width or height. Running with `use_keypoints=True` over a detection-only export produces the same result, because annotations without a `keypoints` field are skipped entirely.
 
-**Solution**: Inspect your JSON annotations for `iscrowd` values. If using SAM masks, preprocess the JSON to set `iscrowd: 0`.
+**Solution**: Inspect your JSON annotations for `iscrowd` values. When each crowd-flagged mask outlines a single object, as in CVAT mask exports, set `iscrowd: 0` so `use_segments=True` converts its RLE mask; leave genuine crowd regions that cover several objects flagged. If you passed `use_keypoints=True`, confirm your annotations actually carry `keypoints`.
+
+### Box-Shaped Polygons From Mask Annotations
+
+If `use_segments=True` logs `annotations without a usable polygon`, some annotations carry no `segmentation` value, a COCO run-length encoding (`{"counts": ..., "size": ...}`) whose `size` is not the image's `[height, width]` or whose mask is empty or only holds regions too small or thin to outline with three points, or a value that is neither RLE nor a list of at least three coordinate pairs. The usual cause is a detection-only export, which leaves the field missing or empty; a flat coordinate list with no enclosing polygon list, one- and two-point outlines, and other malformed values are handled the same way. An annotation keeps whichever polygons remain, and falls back to a segment row shaped like its bounding box when none do, so the labels stay valid but those rows carry no mask detail.
+
+RLE values whose `counts` are missing or cannot be decoded, such as a truncated string or runs that do not add up to `size`, stop the conversion with an error rather than falling back.
+
+**Solution**: Re-export the annotations with polygon or RLE segmentations, or correct any malformed `segmentation` values.
 
 ### Class ID Gaps in Converted Labels
 
@@ -339,11 +348,11 @@ The `cls91to80` parameter controls how COCO `category_id` values are mapped to Y
 
 ### Can I train YOLO directly on COCO JSON without converting?
 
-Not with the current YOLO training pipeline — annotations must be in YOLO `.txt` format with one file per image. Use `convert_coco()` to convert your COCO JSON first, then follow this [guide](#step-by-step-conversion-guide) to organize and train. For more on supported formats, see [dataset formats](../datasets/detect/index.md).
+Not without custom code. The default training pipeline expects YOLO `.txt` labels with one file per image, so either run `convert_coco()` and follow this [step-by-step guide](#step-by-step-conversion-guide), or subclass the dataset to parse the COCO JSON on the fly — see [Train YOLO on COCO JSON Without Conversion](coco-json-training.md). For more on supported formats, see [dataset formats](../datasets/detect/index.md).
 
 ### Can I convert COCO segmentation annotations to YOLO format?
 
-Yes, use `use_segments=True` when calling `convert_coco()` to include polygon segmentation masks in the converted YOLO labels. This produces label files compatible with [YOLO segmentation models](../tasks/segment.md):
+Yes, use `use_segments=True` when calling `convert_coco()` to include segmentation masks in the converted YOLO labels. Polygon segmentations are converted directly, and run-length encoded (RLE) masks, compressed or uncompressed, are decoded with `faster-coco-eval` (installed automatically when a JSON file contains them) to the outer outlines of their regions. An object split into several polygons or mask regions is joined into one polygon row, and because YOLO polygons cannot hold holes, mask holes are filled. Crowd annotations (`iscrowd: 1`) are skipped. This produces label files compatible with [YOLO segmentation models](../tasks/segment.md):
 
 ```python
 from ultralytics.data.converter import convert_coco

@@ -58,6 +58,15 @@ class SpeedEstimator(BaseSolution):
         self.meter_per_pixel = self.CFG["meter_per_pixel"]  # Scene scale, depends on camera details
         self.max_speed = self.CFG["max_speed"]  # Maximum speed adjustment
 
+    def forget_tracks(self, track_ids):
+        """Drop retired IDs from speed bookkeeping so it doesn't grow across a 24/7 stream (see BaseSolution)."""
+        super().forget_tracks(track_ids)
+        for track_id in track_ids:
+            self.trk_hist.pop(track_id, None)
+            self.trk_frame_ids.pop(track_id, None)
+            self.spd.pop(track_id, None)
+            self.locked_ids.discard(track_id)
+
     def process(self, im0) -> SolutionResults:
         """Process an input frame to estimate object speeds based on tracking data.
 
@@ -65,7 +74,8 @@ class SpeedEstimator(BaseSolution):
             im0 (np.ndarray): Input image for processing with shape (H, W, C) in OpenCV BGR format.
 
         Returns:
-            (SolutionResults): Contains processed image `plot_im` and `total_tracks` (number of tracked objects).
+            (SolutionResults): Contains processed image `plot_im`, `total_tracks` (number of tracked objects), and
+                `speed_dict` (dict[int, int], speed in km/h per track ID in this frame whose speed is locked).
 
         Examples:
             Process a frame for speed estimation
@@ -77,7 +87,7 @@ class SpeedEstimator(BaseSolution):
         self.extract_tracks(im0)
         annotator = SolutionAnnotator(im0, line_width=self.line_width)
 
-        for box, track_id, _, _ in zip(self.boxes, self.track_ids, self.clss, self.confs):
+        for box, track_id in zip(self.boxes, self.track_ids):
             self.store_tracking_history(track_id, box)
 
             if track_id not in self.trk_hist:  # Initialize history if new track found
@@ -104,11 +114,12 @@ class SpeedEstimator(BaseSolution):
                         self.trk_frame_ids.pop(track_id, None)  # Remove frame start reference
 
             if track_id in self.spd:
-                speed_label = f"{self.spd[track_id]} km/h"
+                speed_label = f"{self.spd[track_id]} km/h" if self.show_labels else None
                 annotator.box_label(box, label=speed_label, color=colors(track_id, True))  # Draw bounding box
 
         plot_im = annotator.result()
         self.display_output(plot_im)  # Display output with base class function
 
-        # Return results with processed image and tracking summary
-        return SolutionResults(plot_im=plot_im, total_tracks=len(self.track_ids))
+        # Return results with processed image, tracking summary, and locked speeds of objects in this frame
+        speed_dict = {t: self.spd[t] for t in self.track_ids if t in self.spd}
+        return SolutionResults(plot_im=plot_im, total_tracks=len(self.track_ids), speed_dict=speed_dict)

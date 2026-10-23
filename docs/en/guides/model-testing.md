@@ -124,7 +124,7 @@ When testing a [machine learning](https://www.ultralytics.com/glossary/machine-l
 The key is to find a balance so the model performs well on both training and validation datasets. Regularly monitoring metrics and visually inspecting predictions during testing helps you catch a drift toward either extreme.
 
 <p align="center">
-  <img width="100%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/overfitting-underfitting-appropriate-fitting.avif" alt="Comparison of underfitting, appropriate fitting, and overfitting on the same dataset">
+  <img width="100%" src="https://cdn.ul.run/i/40f1ea3878f5b28e8919bb9fbeb1ce92.avif" alt="Comparison of underfitting, appropriate fitting, and overfitting on the same dataset">
 </p>
 
 ## Data Leakage in Computer Vision and How to Avoid It

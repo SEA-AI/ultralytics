@@ -3,7 +3,7 @@ title: COCO128 Detection Dataset
 comments: true
 creator:
     name: Ultralytics
-    url: https://www.ultralytics.com/
+    url: https://www.ultralytics.com
 license:
     name: CC-BY-4.0
     url: https://cocodataset.org/#termsofuse
@@ -15,7 +15,7 @@ keywords: COCO128, Ultralytics, dataset, object detection, YOLO26, training, val
 
 ## Introduction
 
-[Ultralytics](https://www.ultralytics.com/) COCO128 is a small, but versatile [object detection](https://www.ultralytics.com/glossary/object-detection) dataset composed of the first 128 images of the COCO train 2017 set. This dataset is ideal for testing and debugging object detection models, or for experimenting with new detection approaches. With 128 images, it is small enough to be easily manageable, yet diverse enough to test training pipelines for errors and act as a sanity check before training larger datasets.
+[Ultralytics](https://www.ultralytics.com) COCO128 is a small, but versatile [object detection](https://www.ultralytics.com/glossary/object-detection) dataset composed of the first 128 images of the COCO train 2017 set. This dataset is ideal for testing and debugging object detection models, or for experimenting with new detection approaches. With 128 images, it is small enough to be easily manageable, yet diverse enough to test training pipelines for errors and act as a sanity check before training larger datasets.
 
 <p align="center">
   <br>
@@ -28,11 +28,11 @@ keywords: COCO128, Ultralytics, dataset, object detection, YOLO26, training, val
   <strong>Watch:</strong> Ultralytics COCO Dataset Overview
 </p>
 
-This dataset is intended for use with [Ultralytics Platform](https://platform.ultralytics.com/) and [YOLO26](../../models/yolo26.md).
+This dataset is intended for use with [Ultralytics Platform](https://platform.ultralytics.com/ultralytics/datasets/coco128) and [YOLO26](../../models/yolo26.md).
 
 ## Dataset Structure
 
-COCO128 contains the first 128 images from the COCO train 2017 set, covering all 80 COCO object classes in [YOLO label format](../index.md). The same 128 images serve as both the training and validation split, keeping it lightweight for quick sanity checks:
+COCO128 contains the first 128 images from the COCO train 2017 set, labeled with the 80 COCO class names (71 of which appear in these images) in [YOLO label format](../index.md). The same 128 images serve as both the training and validation split, keeping it lightweight for quick sanity checks:
 
 ```text
 coco128/
@@ -81,7 +81,7 @@ The COCO128 dataset (7 MB) downloads automatically the first time you start trai
 
 Here are some examples of images from the COCO128 dataset, along with their corresponding annotations:
 
-<img src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/mosaiced-training-batch-1.avif" alt="COCO128 object detection dataset mosaic training batch" width="800">
+<img src="https://cdn.ul.run/i/0ad1322ce67942909904ccc1e57afd4e.avif" alt="COCO128 object detection dataset mosaic training batch" width="800">
 
 - **Mosaiced Image**: This image demonstrates a training batch composed of mosaiced dataset images. Mosaicing is a technique used during training that combines multiple images into a single image to increase the variety of objects and scenes within each training batch. This helps improve the model's ability to generalize to different object sizes, aspect ratios, and contexts.
 
@@ -91,7 +91,7 @@ The example showcases the variety and complexity of the images in the COCO128 da
 
 If you use the COCO dataset in your research or development work, please cite the following paper:
 
-!!! quote ""
+!!! quote "Citation"
 
     === "BibTeX"
 
@@ -131,7 +131,6 @@ To train a YOLO26 model on the COCO128 dataset, you can use either Python or CLI
         # Train the model
         results = model.train(data="coco128.yaml", epochs=100, imgsz=640)
         ```
-
 
     === "CLI"
 

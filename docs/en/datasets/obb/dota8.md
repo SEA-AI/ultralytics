@@ -3,7 +3,7 @@ title: DOTA8 OBB Dataset
 comments: true
 creator:
     name: Ultralytics
-    url: https://www.ultralytics.com/
+    url: https://www.ultralytics.com
 license:
     name: Research-Only
     url: https://captain-whu.github.io/DOTA/dataset.html
@@ -15,7 +15,7 @@ keywords: DOTA8 dataset, Ultralytics, YOLO26, object detection, debugging, train
 
 ## Introduction
 
-[Ultralytics](https://www.ultralytics.com/) DOTA8 is a small but versatile oriented [object detection](https://www.ultralytics.com/glossary/object-detection) dataset composed of the first 8 images of the split DOTAv1 set, 4 for training and 4 for validation. This dataset is ideal for testing and debugging object detection models, or for experimenting with new detection approaches. With 8 images, it is small enough to be easily manageable, yet diverse enough to test training pipelines for errors and act as a sanity check before training larger datasets.
+[Ultralytics](https://www.ultralytics.com) DOTA8 is a small but versatile oriented [object detection](https://www.ultralytics.com/glossary/object-detection) dataset composed of the first 8 images of the split DOTAv1 set, 4 for training and 4 for validation. This dataset is ideal for testing and debugging object detection models, or for experimenting with new detection approaches. With 8 images, it is small enough to be easily manageable, yet diverse enough to test training pipelines for errors and act as a sanity check before training larger datasets.
 
 ## Dataset Structure
 
@@ -76,7 +76,7 @@ To train a YOLO26n-obb model on the DOTA8 dataset for 100 [epochs](https://www.u
 
 Here are some examples of images from the DOTA8 dataset, along with their corresponding annotations:
 
-<img src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/mosaiced-training-batch.avif" alt="DOTA8 oriented bounding box dataset training mosaic" width="800">
+<img src="https://cdn.ul.run/i/abcdbb24150fbc2a192327b59185ddbb.avif" alt="DOTA8 oriented bounding box dataset training mosaic" width="800">
 
 - **Mosaiced Image**: This image demonstrates a training batch composed of mosaiced dataset images. Mosaicing is a technique used during training that combines multiple images into a single image to increase the variety of objects and scenes within each training batch. This helps improve the model's ability to generalize to different object sizes, aspect ratios, and contexts.
 
@@ -86,7 +86,7 @@ The example showcases the variety and complexity of the images in the DOTA8 data
 
 If you use the DOTA dataset in your research or development work, please cite the following paper:
 
-!!! quote ""
+!!! quote "Citation"
 
     === "BibTeX"
 
@@ -109,7 +109,7 @@ A special note of gratitude to the team behind the DOTA datasets for their comme
 
 ### What is the DOTA8 dataset and how can it be used?
 
-The DOTA8 dataset is a small, versatile oriented object detection dataset made up of the first 8 images from the DOTAv1 split set, with 4 images designated for training and 4 for validation. It's ideal for testing and debugging object detection models like Ultralytics YOLO26. Due to its manageable size and diversity, it helps in identifying pipeline errors and running sanity checks before deploying larger datasets. Learn more about object detection with [Ultralytics YOLO26](https://github.com/ultralytics/ultralytics).
+The DOTA8 dataset is a small, versatile oriented object detection dataset made up of the first 8 images from the DOTAv1 split set, with 4 images designated for training and 4 for validation. It's ideal for testing and debugging object detection models like Ultralytics YOLO26. Due to its manageable size and diversity, it helps in identifying pipeline errors and running sanity checks before training on larger datasets. Learn more about object detection with [Ultralytics YOLO26](https://github.com/ultralytics/ultralytics).
 
 ### How do I train a YOLO26 model using the DOTA8 dataset?
 

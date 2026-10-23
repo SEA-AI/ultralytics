@@ -33,7 +33,7 @@ Before you can get started, make sure you have access to an AzureML workspace. I
 From your AzureML workspace, select Compute > Compute instances > New, select the instance with the resources you need.
 
 <p align="center">
-  <img width="1280" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/create-compute-arrow.avif" alt="Create Azure Compute Instance">
+  <img width="1280" src="https://cdn.ul.run/i/23558b97e48f98c3b877d15468acb32b.avif" alt="Create Azure Compute Instance">
 </p>
 
 ## Quickstart from Terminal
@@ -41,7 +41,7 @@ From your AzureML workspace, select Compute > Compute instances > New, select th
 Start your compute and open a Terminal:
 
 <p align="center">
-  <img width="480" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/open-terminal.avif" alt="Open Terminal">
+  <img width="480" src="https://cdn.ul.run/i/2d2ab78c21a8b2285e8291249e1aed40.avif" alt="Open Terminal">
 </p>
 
 ### Create a Virtual Environment
@@ -72,10 +72,10 @@ pip install ultralytics onnx
 yolo predict model=yolo26n.pt source='https://ultralytics.com/images/bus.jpg'
 ```
 
-[Train](../modes/train.md) a detection model for 10 [epochs](https://www.ultralytics.com/glossary/epoch) with an initial learning_rate of 0.01:
+[Train](../modes/train.md) a detection model for 10 [epochs](https://www.ultralytics.com/glossary/epoch):
 
 ```bash
-yolo train data=coco8.yaml model=yolo26n.pt epochs=10 lr0=0.01
+yolo train data=coco8.yaml model=yolo26n.pt epochs=10
 ```
 
 You can find more [instructions to use the Ultralytics CLI here](../quickstart.md#use-ultralytics-with-cli).
@@ -87,7 +87,7 @@ You can find more [instructions to use the Ultralytics CLI here](../quickstart.m
 Open the compute Terminal.
 
 <p align="center">
-  <img width="480" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/open-terminal.avif" alt="Open Terminal">
+  <img width="480" src="https://cdn.ul.run/i/2d2ab78c21a8b2285e8291249e1aed40.avif" alt="Open Terminal">
 </p>
 
 From your compute terminal, create a new ipykernel using Python 3.12 that will be used by your notebook to manage dependencies:
@@ -169,7 +169,7 @@ To run YOLO26 on AzureML for training, create a compute instance, set up a Conda
 
 3. **Run YOLO26 Tasks**: Use the Ultralytics CLI to train your model:
     ```bash
-    yolo train data=coco8.yaml model=yolo26n.pt epochs=10 lr0=0.01
+    yolo train data=coco8.yaml model=yolo26n.pt epochs=10
     ```
 
 For more details, you can refer to the [instructions to use the Ultralytics CLI](../quickstart.md#use-ultralytics-with-cli).

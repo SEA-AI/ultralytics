@@ -10,18 +10,24 @@ keywords: Ultralytics Platform, API keys, authentication, remote training, secur
 
 [Ultralytics Platform](https://platform.ultralytics.com) API keys enable secure programmatic access for remote training, inference, and automation. Create named keys with AES-256-GCM encryption for different use cases.
 
-![Ultralytics Platform Settings API Keys Tab Key List](https://cdn.ul.run/i/f2c74d17fe21805f988c87adbc456674.avif)<!-- screenshot -->
+![Ultralytics Platform Settings API Keys Tab Key List](https://cdn.ul.run/i/c1abcc5fad50796fdf1a5bd67fd29c67.avif)<!-- screenshot -->
+
+!!! note "Owner-Only"
+
+    Only the workspace owner can create, view, or revoke a workspace's **Ultralytics API keys**, because these keys authenticate as the workspace owner. Other members cannot view that key list. They can see external provider connection status, but cannot view full provider keys or change those connections. API keys themselves
+    cannot create or revoke other API keys. The one exception is [On Premise worker keys](#on-premise-worker-keys),
+    which are revoked by disconnecting the host from the On Premise integration.
 
 ## Create API Key
 
 Create a new API key:
 
 1. Go to **Settings > API Keys**
-2. Click **Create Key**
+2. Click **Add Key** and select **Ultralytics** as the provider
 3. Enter a name for the key (e.g., "Training Server")
 4. Click **Create Key**
 
-![Ultralytics Platform Settings API Keys Tab Create API Key Dialog](https://cdn.ul.run/i/263a91df7402a10d57923827fe00aa0b.avif)<!-- screenshot -->
+![Ultralytics Platform Settings API Keys Tab Create API Key Dialog](https://cdn.ul.run/i/44264db05b4663de74af579ccaaa610d.avif)<!-- screenshot -->
 
 ### Key Name
 
@@ -35,11 +41,23 @@ Give your key a descriptive name:
 
 After creation, the key is displayed in a confirmation dialog:
 
-![Ultralytics Platform Settings API Keys Tab API Key Created Copy Dialog](https://cdn.ul.run/i/9d54f61a64e1d9887f622d64834d7d2e.avif)<!-- screenshot -->
+![Ultralytics Platform Settings API Keys Tab API Key Created Copy Dialog](https://cdn.ul.run/i/0061648d44959da04b8f607c42b723eb.avif)<!-- screenshot -->
+
 !!! tip "Copy Your Key"
 
-    Copy your key after creation for easy reference. Keys are also visible in the key list — the platform decrypts and
-    displays full key values so you can copy them anytime.
+    Copy your key after creation for easy reference. You can also use the copy button in the key list anytime; the list displays only each key's prefix.
+
+## Provider Keys for Agents and Annotation
+
+The same **Settings > API Keys** tab also stores keys for external model providers used by [Agents](../agents.md) and by the paid models in [class-prompted annotation](../data/annotation.md#class-prompted-smart-annotation) and [Generate Similar Images](../data/datasets.md#paid-image-generation-models); annotation and image generation read the key saved in the dataset's workspace. Only the workspace owner can add, replace, or remove these keys; team members can see which providers are connected. Ask the owner to connect a missing provider. To connect a provider as the owner:
+
+1. Click **Add Key**.
+2. Select the provider matching your workflow's language or vision-language model, or the annotation or image generation model you want to run.
+3. Paste that provider's API key into **API Key**, then click **Save Key**. The dialog's **Get an API key** link opens the provider's key page.
+
+An Ultralytics key does not authenticate external model providers. Provider usage is billed through the provider account associated with the saved key. Use the key row's edit control to replace a provider key.
+
+![Ultralytics Platform Add API Key dialog with Google Gemini selected as the provider](https://cdn.ul.run/i/d25887575ed998e955cea7ae69901f90.avif)
 
 ## Key Format
 
@@ -55,9 +73,8 @@ ul_a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4
 
 ### Key Security
 
-- Keys are stored with **AES-256-GCM encryption**
-- Authentication uses a SHA-256 hash for a fast indexed lookup
-- Full key values are never stored in plaintext
+- Keys are stored with **AES-256-GCM encryption**, never in plaintext
+- The first 11 characters (`ul_` plus 8 hex characters) act as a display prefix, so a key can be identified without exposing it
 
 ## Using API Keys
 
@@ -79,11 +96,13 @@ Set your key as an environment variable:
 
 ### YOLO CLI
 
-Set the key using the YOLO CLI:
+Validate and save the key using the YOLO CLI on Python>=3.11:
 
 ```bash
-yolo settings api_key="YOUR_API_KEY"
+yolo login YOUR_API_KEY
 ```
+
+Remove the saved key with `yolo logout`.
 
 ### HTTP Headers
 
@@ -94,13 +113,21 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
   https://platform.ultralytics.com/api/...
 ```
 
+Or pass it to the Python SDK (`pip install "ultralytics-platform>=0.1.45"`), which reads `ULTRALYTICS_API_KEY` or the key saved by `yolo login` when `api_key` is omitted:
+
+```python
+from ultralytics_platform import Platform
+
+client = Platform(api_key="YOUR_API_KEY")
+```
+
 See the [REST API Reference](../api/index.md) for all available endpoints.
 
 ### Remote Training
 
 Enable metric streaming with your key.
 
-Install or update the Ultralytics package before starting:
+Install or update the Ultralytics package on Python>=3.11 before starting:
 
 ```bash
 pip install -U ultralytics
@@ -119,19 +146,21 @@ See [Cloud Training](../train/cloud-training.md#remote-training) for the complet
 
 All keys are listed on the `Settings > API Keys` tab:
 
-Each key card shows the key name, copyable key value, relative creation time, usage count, and a revoke button.
+Each key row shows the key name, the key prefix, the creation date, a copy button for the full key, and a remove (trash)
+button.
 
 ### Revoke Key
 
 Revoke a key that's compromised or no longer needed:
 
 1. Find the key in the API Keys section
-2. Click the **Revoke** (trash) button
-3. Confirm revocation
+2. Click the remove (trash) button
+3. Click **Remove Key** to confirm
 
 !!! warning "Immediate Effect"
 
-    Revocation is immediate. Any applications using the key will stop working.
+    Revocation is immediate and permanent — the key record is deleted, not disabled. Any applications using the key
+    will stop working.
 
 ### Regenerate Key
 
@@ -146,9 +175,17 @@ If a key is compromised:
 API keys are scoped to the currently active workspace:
 
 - **Personal workspace**: Keys authenticate as your personal account
-- **Team workspace**: Keys authenticate within the team context
+- **Team workspace**: Keys authenticate as the team workspace owner, with full owner permissions in that workspace
 
-When switching workspaces in the sidebar, the API Keys section shows keys for that workspace. Editor role or higher is required to manage workspace API keys. See [Teams](teams.md) for role details.
+When switching workspaces in the sidebar, the API Keys section shows keys for that workspace. Because a workspace key
+carries owner permissions, only the workspace owner can create, view, or revoke one. See [Teams](teams.md) for role
+details.
+
+### On Premise Worker Keys
+
+Connecting an [On Premise](../integrations/on-premise.md) host mints a separate worker key. Worker keys are managed from
+the On Premise integration rather than this tab, are never listed alongside your API keys, and are revoked by
+disconnecting the host — which also cancels that host's queued and running jobs.
 
 ## Security Best Practices
 
@@ -193,7 +230,7 @@ Solutions:
 1. Verify key is copied correctly (including the `ul_` prefix)
 2. Check key hasn't been revoked
 3. Confirm environment variable is set
-4. Ensure you're using `ultralytics>=8.4.104`
+4. Ensure you're using Python>=3.11 and `ultralytics>=8.4.120`
 
 ### Permission Denied
 
@@ -205,7 +242,9 @@ Solutions:
 
 1. Verify you're the resource owner or have appropriate workspace access
 2. Check the key belongs to the correct workspace
-3. Create a new key if needed
+3. If you're managing keys in a team workspace, confirm you're the workspace owner — other roles get
+   `Workspace owner access required`
+4. Create a new key if needed
 
 ### Rate Limited
 
@@ -215,7 +254,7 @@ Error: Rate limit exceeded
 
 Solutions:
 
-1. Reduce request frequency — see the [rate limit table](../api/index.md#per-api-key-limits) for per-endpoint limits
+1. Reduce request frequency — see the [rate limit table](../api/index.md#rate-limits) for per-category limits
 2. Implement exponential backoff using the `Retry-After` header
 3. Use a [dedicated endpoint](../deploy/endpoints.md) when you need isolated inference capacity
 
@@ -231,7 +270,7 @@ Keys don't expire automatically. They remain valid until revoked. Consider imple
 
 ### Can I see my key after creation?
 
-Yes, full key values are visible in the key list on `Settings > API Keys`. The Platform decrypts and displays your keys so you can copy them anytime.
+Yes. The key list on `Settings > API Keys` shows each key's prefix, and its copy button copies the full key value anytime.
 
 ### Are keys region-specific?
 
@@ -239,4 +278,11 @@ Keys work across regions but access data in your account's region only.
 
 ### Can I share keys with team members?
 
-Better practice: Have each team member create their own key. For team workspaces, each member with Editor role or higher can create keys scoped to that workspace.
+No — a team workspace key authenticates as the workspace owner, so only the owner can create or view one, and sharing it
+hands over owner permissions. Have each member create a key in their own personal workspace instead, and ask the owner
+to mint a dedicated workspace key for shared automation such as CI.
+
+### Do keys work in every workspace I belong to?
+
+No. A key belongs to the workspace it was created in and only reaches that workspace's resources. Create a separate key
+for each workspace you automate.

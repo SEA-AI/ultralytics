@@ -8,10 +8,21 @@ keywords: YOLO26, LiteRT, TFLite, TensorFlow Lite, LiteRT.js, model export, edge
 # Export YOLO Models to LiteRT for Edge and Web Deployment
 
 <p align="center">
-  <img width="75%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/tflite-logo.avif" alt="LiteRT edge deployment framework">
+  <img width="75%" src="https://cdn.ul.run/i/77f69836dfc1d1e96a7e9c9968fa98fd.avif" alt="LiteRT edge deployment framework">
 </p>
 
 [LiteRT](https://developers.google.com/edge/litert/overview) (short for _Lite Runtime_) is Google's high-performance runtime for on-device AI. It is the next generation and the new name for TensorFlow Lite (TFLite), and it runs the same `.tflite` model format. With LiteRT, a single exported [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) model deploys across **mobile, embedded, edge, and the browser** — covering everything that the older `tflite` and `tfjs` export formats handled separately, now under one umbrella.
+
+<p align="center">
+  <br>
+  <iframe loading="lazy" width="720" height="405" src="https://www.youtube.com/embed/FmgrfmZlhpY"
+    title="YouTube video player" frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowfullscreen>
+  </iframe>
+  <br>
+  <strong>Watch:</strong> How to Export Ultralytics YOLO26 to Google LiteRT | Deploy Vision AI on Android & iOS | Mobile AI 📱🚀
+</p>
 
 The LiteRT export format optimizes your models for tasks like [object detection](https://www.ultralytics.com/glossary/object-detection), [segmentation](https://www.ultralytics.com/glossary/image-segmentation), [pose estimation](../tasks/pose.md), and [classification](https://www.ultralytics.com/glossary/image-classification) so they run fast and offline on a wide range of devices.
 
@@ -26,7 +37,7 @@ The LiteRT export format optimizes your models for tasks like [object detection]
 
 !!! tip "Run YOLO on Web with LiteRT.js today via the official @ultralytics/yolo npm package"
 
-    The official [Ultralytics YOLO NPM package](https://www.npmjs.com/package/@ultralytics/yolo) runs LiteRT `.tflite` exports directly in the browser via [LiteRT.js](https://developers.google.com/edge/litert/web) no server or Python required — with real-time webcam inference, single-image prediction, and WebGPU acceleration (automatic CPU/WASM fallback) across all six YOLO26 tasks (detect, segment, pose, OBB, classify, semantic). On WebGPU it's often ~2× faster than ONNX Runtime Web.
+    The official [Ultralytics YOLO NPM package](https://www.npmjs.com/package/@ultralytics/yolo) runs LiteRT `.tflite` exports directly in the browser via [LiteRT.js](https://developers.google.com/edge/litert/web) no server or Python required — with real-time webcam inference, single-image prediction, and WebGPU acceleration (automatic CPU/WASM fallback) across six YOLO26 tasks (detect, segment, semantic, classify, pose, OBB). On WebGPU it's often ~2× faster than ONNX Runtime Web.
 
     ```bash
     npm i @ultralytics/yolo @litertjs/core
@@ -139,6 +150,12 @@ LPDDR5X memory and Android 16 / API 36. Its 3 nm
 official `v0.6.6` assets. CPU/GPU order alternates between tasks in one sequential sweep. Native logs confirmed that
 every CPU row used LiteRT CPU/XNNPACK and every GPU row delegated the complete graph to LiteRT OpenCL (`LITERT_CL`).
 
+## Supported Tasks
+
+LiteRT export supports all seven Ultralytics tasks. Semantic segmentation and depth estimation are available only with YOLO26, the only family that ships those heads.
+
+{% include "macros/supported-tasks.md" %}
+
 ## Export to LiteRT: Converting Your YOLO Model
 
 You can improve on-device execution efficiency and broaden deployment options by converting your models to the LiteRT format.
@@ -177,7 +194,7 @@ All [Ultralytics YOLO models](../models/index.md) support export out of the box.
         model = YOLO("yolo26n.pt")
 
         # Export the model to LiteRT format
-        model.export(format="litert", imgsz=640)  # use imgsz=224 for classification
+        model.export(format="litert", imgsz=640)  # creates 'yolo26n.tflite'; use imgsz=224 for classification
         ```
 
     === "CLI"
@@ -197,13 +214,13 @@ All [Ultralytics YOLO models](../models/index.md) support export out of the box.
         model = YOLO("yolo26n.pt")
 
         # Dynamic INT8: int8 weights, FP32 activations - no calibration data needed
-        model.export(format="litert", quantize="w8a32", imgsz=640)  # use imgsz=224 for classification
+        model.export(format="litert", quantize="w8a32", imgsz=640)  # creates 'yolo26n_w8a32.tflite'
 
         # Static INT8: int8 weights + int8 activations - needs calibration data
-        model.export(format="litert", quantize=8, data="coco8.yaml", imgsz=640)  # use 224 for classification
+        model.export(format="litert", quantize=8, data="coco8.yaml", imgsz=640)  # creates 'yolo26n_int8.tflite'
 
         # Static w8a16: int8 weights + int16 activations (higher accuracy) - needs calibration data
-        model.export(format="litert", quantize="w8a16", data="coco8.yaml", imgsz=640)  # use 224 for classification
+        model.export(format="litert", quantize="w8a16", data="coco8.yaml", imgsz=640)  # creates 'yolo26n_w8a16.tflite'
         ```
 
     === "CLI"
@@ -263,20 +280,56 @@ All [Ultralytics YOLO models](../models/index.md) support export out of the box.
 
 ### Export Arguments
 
-| Argument   | Type             | Default        | Description                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------- | ---------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `format`   | `str`            | `'litert'`     | Target format for the exported model, defining compatibility with various deployment environments.                                                                                                                                                                                                                                                                                                                 |
-| `imgsz`    | `int` or `tuple` | `640`          | Desired image size for the model input. Can be an integer for square images or a tuple `(height, width)` for specific dimensions.                                                                                                                                                                                                                                                                                  |
-| `quantize` | `int` or `str`   | `None`         | Quantization precision: `8` (static INT8, int8 weights + int8 activations; needs calibration `data`/`fraction`), `'w8a16'` (static, int8 weights + int16 activations; needs calibration `data`/`fraction`), `'w8a32'` (dynamic INT8, int8 weights + FP32 activations; no calibration needed), or `32`/unset (FP32). FP16 is not exported separately (see note below). Replaces the deprecated `half`/`int8` flags. |
-| `batch`    | `int`            | `1`            | Specifies export model batch inference size or the max number of images the exported model will process concurrently in `predict` mode.                                                                                                                                                                                                                                                                            |
-| `data`     | `str`            | `'coco8.yaml'` | Dataset YAML used for INT8 calibration. If omitted with `quantize=8`, Ultralytics selects the default calibration dataset for the model task.                                                                                                                                                                                                                                                                      |
-| `device`   | `str`            | `None`         | Specifies the device for exporting. LiteRT export runs on CPU (`device=cpu`).                                                                                                                                                                                                                                                                                                                                      |
+| Argument   | Type                      | Default    | Description                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------- | ------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `format`   | `str`                     | `'litert'` | Target format for the exported model, defining compatibility with various deployment environments.                                                                                                                                                                                                                                                                                                                 |
+| `imgsz`    | `int` or `tuple`          | `640`      | Desired image size for the model input. Can be an integer for square images or a tuple `(height, width)` for specific dimensions.                                                                                                                                                                                                                                                                                  |
+| `quantize` | `int` or `str`            | `None`     | Quantization precision: `8` (static INT8, int8 weights + int8 activations; needs calibration `data`/`fraction`), `'w8a16'` (static, int8 weights + int16 activations; needs calibration `data`/`fraction`), `'w8a32'` (dynamic INT8, int8 weights + FP32 activations; no calibration needed), or `32`/unset (FP32). FP16 is not exported separately (see note below). Replaces the deprecated `half`/`int8` flags. |
+| `batch`    | `int`                     | `1`        | Specifies export model batch inference size or the max number of images the exported model will process concurrently in `predict` mode.                                                                                                                                                                                                                                                                            |
+| `data`     | `str`                     | `None`     | Dataset YAML used for INT8 calibration; classification instead takes a dataset directory or a built-in dataset name. If omitted with `quantize=8` or `'w8a16'`, Ultralytics selects the default calibration dataset for the model task.                                                                                                                                                                            |
+| `fraction` | `float`, `int`, or `list` | `1.0`      | Calibration subset as a ratio, image count, or `[train, val, test]` ratios/counts. Two-item lists leave `test` full, while `0` skips it.                                                                                                                                                                                                                                                                           |
+| `device`   | `str`                     | `None`     | Specifies the device for exporting. LiteRT export runs on CPU (`device=cpu`).                                                                                                                                                                                                                                                                                                                                      |
 
 !!! note "FP16 precision"
 
     Unlike the legacy `tflite` export, LiteRT does not require a separate FP16 export. An FP32 `.tflite` model runs in **half precision at runtime** when using a GPU delegate (WebGPU, OpenCL, Metal) — this is the official LiteRT approach to FP16 inference.
 
 For more details about the export process, visit the [Ultralytics documentation page on exporting](../modes/export.md).
+
+## Intel CPU and NPU Inference
+
+Exported `.tflite` models run on Intel hardware through the [LiteRT Intel OpenVINO](https://developers.google.com/edge/litert/next/intel) plugin. Pass `device=intel:cpu` or `device=intel:npu`, and Ultralytics installs `ai-edge-litert>=2.3.0` and `ai-edge-litert-sdk-intel` on first use. The NPU needs an Intel Core Ultra processor with the [Intel NPU driver](https://github.com/intel/linux-npu-driver) installed.
+
+!!! example "Predict"
+
+    === "Python"
+
+        ```python
+        from ultralytics import YOLO
+
+        model = YOLO("yolo26n.tflite")
+        results = model("https://ultralytics.com/images/bus.jpg", device="intel:npu")  # or "intel:cpu"
+        ```
+
+    === "CLI"
+
+        ```bash
+        yolo predict model=yolo26n.tflite source='https://ultralytics.com/images/bus.jpg' device=intel:npu
+        ```
+
+**Hardware:** Intel Core Ultra X7 358H (Panther Lake) and Intel AI Boost NPU 5010, Fedora Linux, NPU driver 1.38.0, `ai-edge-litert` 2.3.0.
+
+| Model         | Task     | size<br><sup>(pixels)</sup> | CPU<br><sup>w8a32 LiteRT<br>(ms)</sup> | CPU<br><sup>w8a32 Intel<br>(ms)</sup> | NPU<br><sup>w8a32 Intel<br>(ms)</sup>   |
+| ------------- | -------- | --------------------------- | -------------------------------------- | ------------------------------------- | --------------------------------------- |
+| YOLO26n       | Detect   | 640                         | 17.5<br><sup>0.8 / 16.1 / 0.6</sup>    | 22.6<br><sup>1.2 / 20.6 / 0.8</sup>   | **4.8**<br><sup>1.0 / 3.3 / 0.4</sup>   |
+| YOLO26n-seg   | Segment  | 640                         | 24.2<br><sup>0.9 / 22.1 / 1.3</sup>    | 32.6<br><sup>1.0 / 30.1 / 1.5</sup>   | **6.2**<br><sup>0.8 / 4.2 / 1.2</sup>   |
+| YOLO26n-sem   | Semantic | 640                         | 25.2<br><sup>1.0 / 14.2 / 10.0</sup>   | 33.1<br><sup>1.1 / 21.9 / 10.2</sup>  | **16.5**<br><sup>1.0 / 5.5 / 10.0</sup> |
+| YOLO26n-depth | Depth    | 640                         | 31.7<br><sup>0.9 / 30.2 / 0.5</sup>    | 76.6<br><sup>0.9 / 75.2 / 0.5</sup>   | **9.1**<br><sup>1.0 / 7.5 / 0.5</sup>   |
+| YOLO26n-cls   | Classify | 224                         | 4.6<br><sup>2.8 / 1.7 / 0.0</sup>      | 7.3<br><sup>3.3 / 3.9 / 0.0</sup>     | **4.1**<br><sup>3.2 / 0.9 / 0.0</sup>   |
+| YOLO26n-pose  | Pose     | 640                         | 20.3<br><sup>0.8 / 19.0 / 0.5</sup>    | 28.6<br><sup>1.1 / 26.8 / 0.8</sup>   | **6.3**<br><sup>0.8 / 4.9 / 0.5</sup>   |
+| YOLO26n-obb   | OBB      | 640                         | 17.2<br><sup>0.8 / 16.1 / 0.3</sup>    | 22.1<br><sup>1.2 / 20.5 / 0.4</sup>   | **4.6**<br><sup>0.9 / 3.4 / 0.3</sup>   |
+
+**Benchmark:** Mean of 15 `predict()` calls after 3 warmups on `bus.jpg`, using `ultralytics` 8.4.174 and `ai-edge-litert` 2.3.0 with `w8a32` exports. Each cell shows total time with the preprocess / inference / postprocess split beneath it.
 
 ## Deploying Exported YOLO LiteRT Models
 

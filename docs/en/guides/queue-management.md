@@ -5,7 +5,7 @@ description: Learn how to manage and optimize queues using Ultralytics YOLO26 to
 keywords: queue management, YOLO26, Ultralytics, reduce wait times, efficiency, customer satisfaction, retail, airports, healthcare, banks
 ---
 
-# Queue Management using Ultralytics YOLO26 🚀
+# Queue Management using Ultralytics YOLO26
 
 ## What is Queue Management?
 
@@ -33,10 +33,10 @@ Queue management using [Ultralytics YOLO26](https://github.com/ultralytics/ultra
 
 ## Real World Applications
 
-|                                                                                            Logistics                                                                                             |                                                                             Retail                                                                             |
-| :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| ![Queue management at airport ticket counter using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/queue-management-airport-ticket-counter-ultralytics-yolov8.avif) | ![Queue monitoring in crowd using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/queue-monitoring-crowd-ultralytics-yolov8.avif) |
-|                                                               Queue management at airport ticket counter Using Ultralytics YOLO26                                                                |                                                          Queue monitoring in crowd Ultralytics YOLO26                                                          |
+|                                                             Logistics                                                              |                                                      Retail                                                       |
+| :--------------------------------------------------------------------------------------------------------------------------------: | :---------------------------------------------------------------------------------------------------------------: |
+| ![Queue management at airport ticket counter using Ultralytics YOLO26](https://cdn.ul.run/i/eab33d5de0ba3789d5da8f0c007511e9.avif) | ![Queue monitoring in crowd using Ultralytics YOLO26](https://cdn.ul.run/i/1b5e30d89e0b2606189c909207cf43cd.avif) |
+|                                Queue management at airport ticket counter Using Ultralytics YOLO26                                 |                                   Queue monitoring in crowd Ultralytics YOLO26                                    |
 
 ## Manage Queues with YOLO26
 
@@ -104,17 +104,16 @@ The `QueueManager` solution counts the objects that remain inside a defined regi
 Here's a table with the `QueueManager` arguments:
 
 {% from "macros/solutions-args.md" import param_table %}
-{{ param_table(["model", "region"]) }}
+{{ param_table(["model", "region", "line_width", "verbose"]) }}
 
-The `QueueManagement` solution also support some `track` arguments:
+The `QueueManager` solution also supports `track` arguments:
 
-{% from "macros/track-args.md" import param_table %}
-{{ param_table(["tracker", "conf", "iou", "classes", "verbose", "device"]) }}
+{% include "macros/solutions-track-args.md" %}
 
 Additionally, the following visualization parameters are available:
 
 {% from "macros/visualization-args.md" import param_table %}
-{{ param_table(["show", "line_width", "show_conf", "show_labels"]) }}
+{{ param_table(["show", "show_conf", "show_labels"]) }}
 
 ## Implementation Strategies
 
@@ -131,9 +130,9 @@ When implementing queue management with YOLO26, consider these best practices:
 
 To use Ultralytics YOLO26 for real-time queue management, you can follow these steps:
 
-1. Load the YOLO26 model with `YOLO("yolo26n.pt")`.
-2. Capture the video feed using `cv2.VideoCapture`.
-3. Define the region of interest (ROI) for queue management.
+1. Capture the video feed using `cv2.VideoCapture`.
+2. Define the region of interest (ROI) for queue management.
+3. Initialize `solutions.QueueManager` with a YOLO26 model such as `yolo26n.pt` and the region.
 4. Process frames to detect objects and manage queues.
 
 Here's a minimal example:
@@ -155,14 +154,15 @@ queuemanager = solutions.QueueManager(
 
 while cap.isOpened():
     success, im0 = cap.read()
-    if success:
-        results = queuemanager(im0)
+    if not success:
+        break
+    results = queuemanager(im0)
 
 cap.release()
 cv2.destroyAllWindows()
 ```
 
-Leveraging [Ultralytics Platform](../platform/index.md) can streamline this process by providing a user-friendly platform for deploying and managing your queue management solution.
+Leveraging [Ultralytics Platform](../platform/index.md) can streamline this process by providing a user-friendly platform for training and deploying the models behind your queue management solution.
 
 ### What are the key advantages of using Ultralytics YOLO26 for queue management?
 
@@ -170,7 +170,7 @@ Using Ultralytics YOLO26 for queue management offers several benefits:
 
 - **Plummeting Waiting Times:** Efficiently organizes queues, reducing customer wait times and boosting satisfaction.
 - **Enhancing Efficiency:** Analyzes queue data to optimize staff deployment and operations, thereby reducing costs.
-- **Real-time Alerts:** Provides real-time notifications for long queues, enabling quick intervention.
+- **Real-time Insights:** Provides live queue counts for every frame, enabling quick intervention when lines grow.
 - **Scalability:** Easily scalable across different environments like retail, airports, and healthcare.
 
 For more details, explore our [Queue Management](../reference/solutions/queue_management.md) solutions.

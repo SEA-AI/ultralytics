@@ -10,7 +10,7 @@ import torch
 
 from ultralytics.utils import LOGGER
 
-from .base import BaseBackend, read_tflite_metadata
+from .base import BaseBackend
 
 
 class TensorFlowBackend(BaseBackend):
@@ -20,12 +20,12 @@ class TensorFlowBackend(BaseBackend):
     quantized model dequantization and task-specific output formatting.
     """
 
-    def __init__(self, weight: str | Path, device: torch.device, fp16: bool = False, format: str = "saved_model"):
+    def __init__(self, weight: str | Path, device: torch.device | str, fp16: bool = False, format: str = "saved_model"):
         """Initialize the Google TensorFlow backend.
 
         Args:
             weight (str | Path): Path to the SavedModel directory, .pb file, or Edge TPU .tflite file.
-            device (torch.device): Device to run inference on.
+            device (torch.device | str): Device to run inference on, e.g. 'tpu:0' to select an Edge TPU.
             fp16 (bool): Whether to use FP16 half-precision inference.
             format (str): Model format, one of "saved_model", "pb", or "edgetpu".
         """
@@ -45,12 +45,7 @@ class TensorFlowBackend(BaseBackend):
         if self.format == "saved_model":
             LOGGER.info(f"Loading {weight} for TensorFlow SavedModel inference...")
             self.model = tf.saved_model.load(weight)
-            # Load metadata
-            metadata_file = Path(weight) / "metadata.yaml"
-            if metadata_file.exists():
-                from ultralytics.utils import YAML
-
-                self.apply_metadata(YAML.load(metadata_file))
+            self.apply_metadata(self.read_metadata(weight))
         elif self.format == "pb":
             LOGGER.info(f"Loading {weight} for TensorFlow GraphDef inference...")
             from ultralytics.utils.export.tensorflow import gd_outputs
@@ -65,17 +60,7 @@ class TensorFlowBackend(BaseBackend):
             with open(weight, "rb") as f:
                 gd.ParseFromString(f.read())
             self.frozen_func = wrap_frozen_graph(gd, inputs="x:0", outputs=gd_outputs(gd))
-
-            # Try to find metadata
-            try:
-                metadata_file = next(
-                    Path(weight).resolve().parent.rglob(f"{Path(weight).stem}_saved_model*/metadata.yaml")
-                )
-                from ultralytics.utils import YAML
-
-                self.apply_metadata(YAML.load(metadata_file))
-            except StopIteration:
-                pass
+            self.apply_metadata(self.read_metadata(weight))
         else:  # edgetpu
             try:
                 from tflite_runtime.interpreter import Interpreter, load_delegate
@@ -102,8 +87,7 @@ class TensorFlowBackend(BaseBackend):
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()
 
-            # Load metadata embedded in the .tflite (shared helper handles metadata.json and legacy entries)
-            self.apply_metadata(read_tflite_metadata(weight))
+            self.apply_metadata(self.read_metadata(weight))
 
     def forward(self, im: torch.Tensor) -> list[np.ndarray]:
         """Run Google TensorFlow inference with format-specific execution and output post-processing.
@@ -131,7 +115,9 @@ class TensorFlowBackend(BaseBackend):
 
             if is_int:
                 scale, zero_point = details["quantization"]
-                im = (im / scale + zero_point).astype(details["dtype"])
+                limits = np.iinfo(details["dtype"])
+                im = im / scale + zero_point
+                im = im.clip(limits.min, limits.max, out=im).astype(details["dtype"])
 
             self.interpreter.set_tensor(details["index"], im)
             self.interpreter.invoke()
@@ -158,9 +144,10 @@ class TensorFlowBackend(BaseBackend):
                     else:
                         x[:, [0, 2]] *= w
                         x[:, [1, 3]] *= h
-                        if self.task == "pose":
-                            x[:, 5::3] *= w
-                            x[:, 6::3] *= h
+                        if self.task == "pose":  # keypoints follow the box (4) and class-score (nc) channels
+                            kpt_start = 4 + len(self.names)
+                            x[:, kpt_start::3] *= w
+                            x[:, kpt_start + 1 :: 3] *= h
                 y.append(x)
 
         if self.task == "segment":  # segment with (det, proto) output order reversed

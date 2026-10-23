@@ -39,6 +39,10 @@ def onnx2rknn(
 
     Returns:
         (str): Path to the exported ``_rknn_model`` directory.
+
+    Raises:
+        ValueError: If an INT8-only target is exported without ``quantize=8``, or the INT8 calibration list is missing.
+        RuntimeError: If an RKNN Toolkit API call fails.
     """
     use_int8 = quantize == 8
     if name in {"rv1103", "rv1106", "rv1103b", "rv1106b"} and not use_int8:
@@ -56,8 +60,9 @@ def onnx2rknn(
     from ultralytics.utils.checks import check_requirements
 
     LOGGER.info(f"\n{prefix} starting export with rknn-toolkit2...")
-    check_requirements("rknn-toolkit2>=2.3.2")
-    check_requirements("onnx<1.19.0")  # fix AttributeError: module 'onnx' has no attribute 'mapping'
+    # setuptools<82 retains pkg_resources, which rknn-toolkit2 depends on and setuptools 82 removed
+    # <2.5: 2.5.0 fails YOLO11 and YOLO26 builds https://github.com/airockchip/rknn-toolkit2/issues/581
+    check_requirements(["rknn-toolkit2>=2.3.2,<2.5", "setuptools<82"])
 
     if IS_COLAB:
         # Prevent 'exit' from closing the notebook https://github.com/airockchip/rknn-toolkit2/issues/259
