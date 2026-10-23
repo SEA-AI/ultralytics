@@ -1276,6 +1276,7 @@ class DetMetrics(SimpleClass, DataExportMixin):
                 "Instances": self.nt_per_class[self.ap_class_index[i]],
                 **{k: round(v[i], decimals) for k, v in per_class.items()},
                 f"mAP{self.mAP_lb}": round(self.class_result(i)[2], decimals),
+                "mAP75": round(self.box.all_ap[i, 5], decimals),
                 f"mAP{self.mAP_lb}-{self.mAP_ub}": round(self.class_result(i)[3], decimals),
             }
             for i in range(len(per_class["Box-P"]))
