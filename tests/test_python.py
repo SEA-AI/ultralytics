@@ -7,6 +7,7 @@ import platform
 import shutil
 import tarfile
 import urllib
+import warnings
 import zipfile
 from copy import copy
 from pathlib import Path
@@ -1865,6 +1866,19 @@ def test_horizon_top_conf_index():
     assert top_conf_index(np.array([0.5])) is None
     assert top_conf_index(np.array([0.3, 0.9, 0.1])) == 1
     assert top_conf_index(torch.tensor([0.2, 0.4, 0.8])) == 2
+
+
+@pytest.mark.parametrize("augment", [False, True])
+def test_convert_16bit_to_8bit(augment):
+    """16-bit thermal conversion must build without albumentations warnings (ignored args silently change behavior)."""
+    pytest.importorskip("albumentations")
+    from ultralytics.data.augment16 import convert_16bit_to_8bit
+
+    im = np.random.default_rng(0).integers(12000, 31000, (120, 160), dtype=np.uint16)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        out = convert_16bit_to_8bit(im, augment=augment)
+    assert out.shape == (120, 160, 3) and out.dtype == np.uint8
 
 
 def test_scale_coords_nonuniform_letterbox():
