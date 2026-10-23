@@ -1141,6 +1141,8 @@ class DetMetrics(SimpleClass, DataExportMixin):
         self.args = args
         self.mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
         self.mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
+        lb, ub = getattr(self.args, "mAP_lb", 0.5), getattr(self.args, "mAP_ub", 0.95)
+        self.mAP_mid = f"{round((lb + 5 * (ub - lb) / 9) * 100):02d}"  # IoU at iouv[5], read by summary()
 
     def update_stats(self, stat: dict[str, Any]) -> None:
         """Update statistics by appending new values to existing stat collections.
@@ -1276,7 +1278,7 @@ class DetMetrics(SimpleClass, DataExportMixin):
                 "Instances": self.nt_per_class[self.ap_class_index[i]],
                 **{k: round(v[i], decimals) for k, v in per_class.items()},
                 f"mAP{self.mAP_lb}": round(self.class_result(i)[2], decimals),
-                "mAP75": round(self.box.all_ap[i, 5], decimals),
+                f"mAP{self.mAP_mid}": round(self.box.all_ap[i, 5], decimals),
                 f"mAP{self.mAP_lb}-{self.mAP_ub}": round(self.class_result(i)[3], decimals),
             }
             for i in range(len(per_class["Box-P"]))
