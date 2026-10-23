@@ -37,7 +37,7 @@ def get_16_to_8_transform(augment):
                 NormalizeMinMax(p=1.0),
                 A.UnsharpMask(p=0.5, threshold=5),
                 A.ToRGB(p=1.0),
-                A.ImageCompression(p=0.9, quality_lower=50),
+                A.ImageCompression(p=0.9, quality_range=(50, 100)),
             ]
         )
     else:
@@ -77,10 +77,9 @@ class CLAHE(ImageOnlyTransform):
         self,
         clip_limit: float | Sequence[float] = 4.0,
         tile_grid_size: float | Sequence[float] = (8, 8),
-        always_apply=False,
         p=0.5,
     ):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=p)
         self.clip_limit = cast(tuple[float, float], clip_limit)
         self.tile_grid_size = cast(tuple[int, int], tile_grid_size)
 
@@ -111,8 +110,8 @@ class NormalizeMinMax(ImageOnlyTransform):
         uint8, uint16
     """
 
-    def __init__(self, always_apply=False, p=0.5):
-        super().__init__(p=p, always_apply=always_apply)
+    def __init__(self, p=0.5):
+        super().__init__(p=p)
 
     def apply(self, img, **params):
         return cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U)
@@ -143,10 +142,9 @@ class Clip(ImageOnlyTransform):
         self,
         lower_limit: float | Sequence[float] = (0.1, 0.2),
         upper_limit: float | Sequence[float] = (0.8, 0.9),
-        always_apply=False,
         p=0.5,
     ):
-        super().__init__(p=p, always_apply=always_apply)
+        super().__init__(p=p)
         self.lower_limit = cast(tuple[float, float], lower_limit)
         self.upper_limit = cast(tuple[float, float], upper_limit)
 
