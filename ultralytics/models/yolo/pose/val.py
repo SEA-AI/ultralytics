@@ -67,7 +67,7 @@ class PoseValidator(DetectionValidator):
         self.sigma = None
         self.kpt_shape = None
         self.args.task = "pose"
-        self.metrics = PoseMetrics()
+        self.metrics = PoseMetrics(iouv=self.iouv)
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Preprocess batch by converting keypoints data to float and moving it to the device."""
@@ -77,18 +77,19 @@ class PoseValidator(DetectionValidator):
 
     def get_desc(self) -> str:
         """Return description of evaluation metrics in string format."""
+        mAP_lb, mAP_ub = self.metrics.mAP_lb, self.metrics.mAP_ub
         return ("%22s" + "%11s" * 10) % (
             "Class",
             "Images",
             "Instances",
             "Box(P",
             "R",
-            "mAP50",
-            "mAP50-95)",
+            f"mAP{mAP_lb}",
+            f"mAP{mAP_lb}-{mAP_ub})",
             "Pose(P",
             "R",
-            "mAP50",
-            "mAP50-95)",
+            f"mAP{mAP_lb}",
+            f"mAP{mAP_lb}-{mAP_ub})",
         )
 
     def init_metrics(self, model: torch.nn.Module) -> None:

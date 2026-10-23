@@ -60,7 +60,7 @@ class DetectionValidator(BaseValidator):
         mAP_ub = self.args.mAP_ub
         self.iouv = torch.linspace(mAP_lb, mAP_ub, 10)  # iou vector for mAP@mAP_lb:mAP_ub
         self.niou = self.iouv.numel()
-        self.metrics = DetMetrics(args=self.args)
+        self.metrics = DetMetrics(iouv=self.iouv)
 
     @staticmethod
     def _check_max_det(args, datasets: dict[str, torch.utils.data.Dataset]) -> None:
@@ -156,8 +156,7 @@ class DetectionValidator(BaseValidator):
 
     def get_desc(self) -> str:
         """Return a formatted string summarizing class metrics of YOLO model."""
-        mAP_lb = f"{int(self.args.mAP_lb * 100):02d}"
-        mAP_ub = f"{int(self.args.mAP_ub * 100):02d}"
+        mAP_lb, mAP_ub = self.metrics.mAP_lb, self.metrics.mAP_ub
         return ("%22s" + "%11s" * 6) % (
             "Class",
             "Images",
@@ -597,8 +596,7 @@ class DetectionValidator(BaseValidator):
         Returns:
             (dict[str, Any]): Updated stats dictionary containing the computed COCO-format evaluation metrics.
         """
-        mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
-        mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
+        mAP_lb, mAP_ub = self.metrics.mAP_lb, self.metrics.mAP_ub
 
         if self.args.save_json and len(self.jdict) and (self.is_coco or self.is_lvis or self.gdict):
             LOGGER.info("\nEvaluating faster-coco-eval mAP...")

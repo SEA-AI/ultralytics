@@ -976,10 +976,10 @@ class Metric(SimpleClass):
 
     @property
     def map75(self) -> float:
-        """Return the mean Average Precision (mAP) at an IoU threshold of 0.75.
+        """Return the mean Average Precision (mAP) at the 6th IoU threshold (0.75 for the default 0.50:0.95).
 
         Returns:
-            (float): The mAP at an IoU threshold of 0.75.
+            (float): The mAP at the 6th IoU threshold.
         """
         return self.all_ap[:, 5].mean() if len(self.all_ap) else 0.0
 
@@ -1124,12 +1124,13 @@ class DetMetrics(SimpleClass, DataExportMixin):
         summary: Generate a summarized representation of per-class detection metrics as a list of dictionaries.
     """
 
-    def __init__(self, names: dict[int, str] | None = None, args: Any | None = None) -> None:
+    def __init__(self, names: dict[int, str] | None = None, iouv: torch.Tensor | None = None) -> None:
         """Initialize a DetMetrics instance with class names.
 
         Args:
             names (Dict[int, str], optional): Dictionary of class names.
-            args (Any, optional): Additional arguments.
+            iouv (torch.Tensor, optional): The validator's 10 IoU thresholds, used to name the metric keys. Defaults
+                to 0.50:0.95.
         """
         self.names = names if names is not None else {}
         self.box = Metric()
@@ -1137,12 +1138,9 @@ class DetMetrics(SimpleClass, DataExportMixin):
         self.stats = {"tp": [], "conf": [], "pred_cls": [], "target_cls": [], "target_img": []}
         self.nt_per_class = None
         self.nt_per_image = None
-
-        self.args = args
-        self.mAP_lb = "50" if not hasattr(self.args, "mAP_lb") else f"{int(self.args.mAP_lb * 100):02d}"
-        self.mAP_ub = "95" if not hasattr(self.args, "mAP_ub") else f"{int(self.args.mAP_ub * 100):02d}"
-        lb, ub = getattr(self.args, "mAP_lb", 0.5), getattr(self.args, "mAP_ub", 0.95)
-        self.mAP_mid = f"{round((lb + 5 * (ub - lb) / 9) * 100):02d}"  # IoU at iouv[5], read by summary()
+        iouv = torch.linspace(0.5, 0.95, 10) if iouv is None else iouv
+        # IoU at all_ap columns 0, 5 and -1, e.g. "50", "75", "95" (default) or "05", "55", "95" (IR)
+        self.mAP_lb, self.mAP_mid, self.mAP_ub = (f"{round(float(iouv[i]) * 100):02d}" for i in (0, 5, -1))
 
     def update_stats(self, stat: dict[str, Any]) -> None:
         """Update statistics by appending new values to existing stat collections.
@@ -1310,13 +1308,14 @@ class SegmentMetrics(DetMetrics):
         summary: Generate a summarized representation of per-class segmentation metrics as a list of dictionaries.
     """
 
-    def __init__(self, names: dict[int, str] | None = None) -> None:
+    def __init__(self, names: dict[int, str] | None = None, iouv: torch.Tensor | None = None) -> None:
         """Initialize a SegmentMetrics instance with class names.
 
         Args:
             names (dict[int, str], optional): Dictionary of class names.
+            iouv (torch.Tensor, optional): The validator's IoU thresholds, used to name the metric keys.
         """
-        DetMetrics.__init__(self, names)
+        DetMetrics.__init__(self, names, iouv)
         self.seg = Metric()
         self.stats["tp_m"] = []  # add additional stats for masks
 
@@ -1369,8 +1368,8 @@ class SegmentMetrics(DetMetrics):
             *DetMetrics.keys.fget(self),
             "metrics/precision(M)",
             "metrics/recall(M)",
-            "metrics/mAP50(M)",
-            "metrics/mAP50-95(M)",
+            f"metrics/mAP{self.mAP_lb}(M)",
+            f"metrics/mAP{self.mAP_lb}-{self.mAP_ub}(M)",
         ]
 
     def mean_results(self) -> list[float]:
@@ -1463,13 +1462,14 @@ class PoseMetrics(DetMetrics):
         summary: Generate a summarized representation of per-class pose metrics as a list of dictionaries.
     """
 
-    def __init__(self, names: dict[int, str] | None = None) -> None:
+    def __init__(self, names: dict[int, str] | None = None, iouv: torch.Tensor | None = None) -> None:
         """Initialize the PoseMetrics class with class names.
 
         Args:
             names (dict[int, str], optional): Dictionary of class names.
+            iouv (torch.Tensor, optional): The validator's IoU thresholds, used to name the metric keys.
         """
-        super().__init__(names)
+        super().__init__(names, iouv)
         self.pose = Metric()
         self.stats["tp_p"] = []  # add additional stats for pose
 
@@ -1522,8 +1522,8 @@ class PoseMetrics(DetMetrics):
             *DetMetrics.keys.fget(self),
             "metrics/precision(P)",
             "metrics/recall(P)",
-            "metrics/mAP50(P)",
-            "metrics/mAP50-95(P)",
+            f"metrics/mAP{self.mAP_lb}(P)",
+            f"metrics/mAP{self.mAP_lb}-{self.mAP_ub}(P)",
         ]
 
     def mean_results(self) -> list[float]:
@@ -1688,13 +1688,14 @@ class OBBMetrics(DetMetrics):
         https://arxiv.org/pdf/2106.06072.pdf
     """
 
-    def __init__(self, names: dict[int, str] | None = None) -> None:
+    def __init__(self, names: dict[int, str] | None = None, iouv: torch.Tensor | None = None) -> None:
         """Initialize an OBBMetrics instance with class names.
 
         Args:
             names (dict[int, str], optional): Dictionary of class names.
+            iouv (torch.Tensor, optional): The validator's IoU thresholds, used to name the metric keys.
         """
-        DetMetrics.__init__(self, names)
+        DetMetrics.__init__(self, names, iouv)
 
 
 class SemanticMetrics(SimpleClass, DataExportMixin):

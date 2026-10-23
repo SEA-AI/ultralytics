@@ -45,7 +45,7 @@ class SegmentationValidator(DetectionValidator):
         super().__init__(dataloader, save_dir, args, _callbacks)
         self.process = None
         self.args.task = "segment"
-        self.metrics = SegmentMetrics()
+        self.metrics = SegmentMetrics(iouv=self.iouv)
 
     def preprocess(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Preprocess batch of images for YOLO segmentation validation.
@@ -74,18 +74,19 @@ class SegmentationValidator(DetectionValidator):
 
     def get_desc(self) -> str:
         """Return a formatted description of evaluation metrics."""
+        mAP_lb, mAP_ub = self.metrics.mAP_lb, self.metrics.mAP_ub
         return ("%22s" + "%11s" * 10) % (
             "Class",
             "Images",
             "Instances",
             "Box(P",
             "R",
-            "mAP50",
-            "mAP50-95)",
+            f"mAP{mAP_lb}",
+            f"mAP{mAP_lb}-{mAP_ub})",
             "Mask(P",
             "R",
-            "mAP50",
-            "mAP50-95)",
+            f"mAP{mAP_lb}",
+            f"mAP{mAP_lb}-{mAP_ub})",
         )
 
     def postprocess(self, preds: list[torch.Tensor]) -> list[dict[str, torch.Tensor]]:
