@@ -24,7 +24,8 @@ class DeepOCSortTrack(OCSortTrack):
         smooth_feat (np.ndarray | None): Smoothed feature vector via EMA.
         curr_feat (np.ndarray | None): Current frame's feature vector.
         alpha_fixed_emb (float): Base EMA factor for embedding updates.
-        det_thresh (float): Confidence threshold below which a new embedding is ignored rather than blended.
+        det_thresh (float): Confidence threshold at or below which a new embedding does not update an existing smoothed
+            feature.
     """
 
     def __init__(
@@ -46,8 +47,8 @@ class DeepOCSortTrack(OCSortTrack):
             delta_t (int): Temporal window for OCM velocity direction computation.
             feat (np.ndarray | None): Optional appearance feature vector for this detection.
             alpha_fixed_emb (float): Base EMA factor for embedding updates; higher = slower updates.
-            det_thresh (float): Detection-confidence threshold below which the embedding is replaced rather than
-                blended.
+            det_thresh (float): Detection-confidence threshold at or below which a new embedding leaves an existing
+                smoothed feature unchanged rather than being blended in.
         """
         super().__init__(xywh, score, cls, delta_t)
         self.smooth_feat = None
@@ -116,22 +117,25 @@ class DeepOCSortTrack(OCSortTrack):
         """
         if not stracks:
             return
-        multi_mean = np.asarray([st.mean.copy() for st in stracks])
+        multi_mean = np.asarray([st.mean for st in stracks])
         multi_covariance = np.asarray([st.covariance for st in stracks])
 
         R = H[:2, :2]
         t = H[:2, 2]
 
         # Build 8x8 transform: rotate (x,y) and (vx,vy), identity for (a,h) and (va,vh)
-        R8x8 = np.eye(8, dtype=np.float32)
+        R8x8 = np.eye(8)  # float64 holds any homography exactly; a narrower one would round the float64 methods
         R8x8[:2, :2] = R  # rotate position (x, y)
         R8x8[4:6, 4:6] = R  # rotate velocity (vx, vy)
         # indices 2,3 (a,h) and 6,7 (va,vh) remain identity
 
+        multi_mean = np.matmul(R8x8, multi_mean[..., None])[..., 0]
+        multi_mean[:, :2] += t
+        # Keep the right operand C-contiguous, as the `utils.stracks` sibling does: an F-contiguous one sends matmul
+        # into BLAS's transposed-gemm kernel, which on macOS Accelerate leaves FP-exception flags set even for finite
+        # inputs, and numpy then reports spurious divide-by-zero RuntimeWarnings.
+        multi_covariance = np.matmul(np.matmul(R8x8, multi_covariance), np.ascontiguousarray(R8x8.T))
         for i, (mean, cov) in enumerate(zip(multi_mean, multi_covariance)):
-            mean = R8x8.dot(mean)
-            mean[:2] += t
-            cov = R8x8.dot(cov).dot(R8x8.transpose())
             stracks[i].mean = mean
             stracks[i].covariance = cov
 
@@ -232,7 +236,7 @@ class DeepOCSORT(OCSORT):
         results_high: Any,
     ) -> None:
         """Apply GMC warp to Kalman state before first-stage association."""
-        if img is None:
+        if img is None or self.gmc.method is None:
             return
         try:
             warp = self.gmc.apply(img, results_high.xyxy if len(results_high) else np.empty((0, 4)))

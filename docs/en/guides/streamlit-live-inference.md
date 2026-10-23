@@ -22,10 +22,10 @@ Streamlit makes it simple to build and deploy interactive web applications. Comb
   <strong>Watch:</strong> How to Build a Live Inference App with Ultralytics YOLO26 & Streamlit | Detection & Segmentation 🚀
 </p>
 
-|                                                                 Aquaculture                                                                 |                                                           Animal Husbandry                                                            |
-| :-----------------------------------------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------------------------------: |
-| ![Fish Detection using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/fish-detection-ultralytics-yolov8.avif) | ![Animals Detection using Ultralytics YOLO26](https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/animals-detection-yolov8.avif) |
-|                                                   Fish Detection using Ultralytics YOLO26                                                   |                                              Animals Detection using Ultralytics YOLO26                                               |
+|                                              Aquaculture                                               |                                             Animal Husbandry                                              |
+| :----------------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------: |
+| ![Fish Detection using Ultralytics YOLO26](https://cdn.ul.run/i/bc7f3d6a3540c0b6e4b7fbd559d4cd54.avif) | ![Animals Detection using Ultralytics YOLO26](https://cdn.ul.run/i/88f6470efef82fd4195c3a0507e2d739.avif) |
+|                                Fish Detection using Ultralytics YOLO26                                 |                                Animals Detection using Ultralytics YOLO26                                 |
 
 ## Advantages of Live Inference
 
@@ -77,7 +77,7 @@ This will launch the Streamlit application in your default web browser. You will
 
 Under the hood, the Streamlit application uses the [Ultralytics solutions module](../reference/solutions/streamlit_inference.md) to create an interactive interface. When you start the inference, the application:
 
-1. Captures video from your webcam or uploaded video file
+1. Captures frames from your webcam, an uploaded video file, or uploaded images
 2. Processes each frame through the YOLO26 model
 3. Applies object detection with your specified confidence and IoU thresholds
 4. Displays both the original and annotated frames in real-time
@@ -111,7 +111,7 @@ Then, you can create a basic Streamlit application to run live inference:
         from ultralytics import solutions
 
         inf = solutions.Inference(
-            model="yolo26n.pt",  # you can use any model that Ultralytics supports, e.g., YOLO26, YOLOv10
+            model="yolo26n.pt",  # you can use any model that Ultralytics supports, e.g., YOLO26, or a custom-trained model
         )
 
         inf.inference()

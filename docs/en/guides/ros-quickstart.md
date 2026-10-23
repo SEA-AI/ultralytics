@@ -11,12 +11,9 @@ This guide shows you how to integrate [Ultralytics YOLO](../models/yolo26.md) wi
 
 Jump to [setting up YOLO with ROS](#setting-up-ultralytics-yolo-with-ros), then work with [RGB images](#use-ultralytics-with-ros-sensor_msgsimage), [depth images](#use-ultralytics-with-ros-depth-images), or [point clouds](#use-ultralytics-with-ros-sensor_msgspointcloud2).
 
-<p align="center"> <iframe src="https://player.vimeo.com/video/639236696?h=740f412ce5" width="640" height="360" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></p>
-<p align="center"><a href="https://vimeo.com/639236696">ROS Introduction (captioned)</a> from <a href="https://vimeo.com/osrfoundation">Open Robotics</a> on <a href="https://vimeo.com/">Vimeo</a>.</p>
-
 ## What is ROS?
 
-The [Robot Operating System (ROS)](https://www.ros.org/) is an open-source framework widely used in robotics research and industry. ROS provides a collection of [libraries and tools](https://www.ros.org/blog/ecosystem/) to help developers create robot applications. ROS is designed to work with various [robotic platforms](https://robots.ros.org/), making it a flexible and powerful tool for roboticists.
+The [Robot Operating System (ROS)](https://www.ros.org/) is an open-source framework widely used in robotics research and industry. ROS provides a collection of [libraries and tools](https://www.ros.org/blog/ecosystem/) to help developers create robot applications. ROS is designed to work with various [robotic platforms](https://robots.ros.org/), making it a flexible and powerful tool for roboticists. For a brief introduction, watch the three-minute [ROS Introduction](https://vimeo.com/639236696) video from Open Robotics.
 
 ### Key Features of ROS
 
@@ -50,10 +47,10 @@ In ROS, communication between nodes is facilitated through [messages](https://wi
 
 ## Setting Up Ultralytics YOLO with ROS
 
-The ROS1 examples were tested using [this ROS environment](https://github.com/ambitious-octopus/rosbot_ros/tree/noetic), a fork of the [ROSbot ROS repository](https://github.com/husarion/rosbot_ros). The same YOLO and NumPy processing applies in ROS2; only the node lifecycle and message conversion differ.
+The ROS1 examples were tested using [this ROS environment](https://github.com/francesco-mttl/rosbot_ros/tree/noetic), a fork of the [ROSbot ROS repository](https://github.com/husarion/rosbot_ros). The same YOLO and NumPy processing applies in ROS2; only the node lifecycle and message conversion differ.
 
 <p align="center">
-  <img width="50%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/husarion-rosbot-2-pro.avif" alt="Husarion ROSbot 2 PRO autonomous robot platform">
+  <img width="50%" src="https://cdn.ul.run/i/d64082c887f43fb28afc113e3e9a8494.avif" alt="Husarion ROSbot 2 PRO autonomous robot platform">
 </p>
 
 ### Dependencies Installation
@@ -147,7 +144,7 @@ points = points.reshape(message.height, message.width, 4)
 The `sensor_msgs/Image` [message type](https://docs.ros.org/en/api/sensor_msgs/html/msg/Image.html) is commonly used in ROS for representing image data. It contains fields for encoding, height, width, and pixel data, making it suitable for transmitting images captured by cameras or other sensors. Image messages are widely used in robotic applications for tasks such as visual perception, [object detection](https://www.ultralytics.com/glossary/object-detection), and navigation.
 
 <p align="center">
-  <img width="100%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/detection-segmentation-ros-gazebo.avif" alt="Detection and Segmentation in ROS Gazebo">
+  <img width="100%" src="https://cdn.ul.run/i/5bddc48098ffe7f81fb8c8a0ff89abe3.avif" alt="Detection and Segmentation in ROS Gazebo">
 </p>
 
 ### Image Step-by-Step Usage
@@ -353,7 +350,7 @@ def callback(data):
     image = rospy.wait_for_message("/camera/color/image_raw", Image)
     image = ros_numpy.numpify(image)
     depth = ros_numpy.numpify(data)
-    result = segmentation_model(image)
+    result = segmentation_model(image, retina_masks=True)  # masks at the original image resolution
 
     all_objects = []
     for index, cls in enumerate(result[0].boxes.cls):
@@ -400,7 +397,7 @@ while True:
         image = rospy.wait_for_message("/camera/color/image_raw", Image)
         image = ros_numpy.numpify(image)
         depth = ros_numpy.numpify(data)
-        result = segmentation_model(image)
+        result = segmentation_model(image, retina_masks=True)  # masks at the original image resolution
 
         all_objects = []
         for index, cls in enumerate(result[0].boxes.cls):
@@ -424,7 +421,7 @@ while True:
 ## Use Ultralytics with ROS `sensor_msgs/PointCloud2`
 
 <p align="center">
-  <img width="100%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/detection-segmentation-ros-gazebo-1.avif" alt="Detection and Segmentation in ROS Gazebo">
+  <img width="100%" src="https://cdn.ul.run/i/27d4f01eaee71ee9f3754eb0ef5ea4aa.avif" alt="Detection and Segmentation in ROS Gazebo">
 </p>
 
 The `sensor_msgs/PointCloud2` [message type](https://docs.ros.org/en/api/sensor_msgs/html/msg/PointCloud2.html) is a data structure used in ROS to represent 3D point cloud data. This message type is integral to robotic applications, enabling tasks such as 3D mapping, object recognition, and localization.
@@ -506,7 +503,7 @@ import open3d as o3d
 
 ros_cloud = rospy.wait_for_message("/camera/depth/points", PointCloud2)
 xyz, rgb = pointcloud2_to_array(ros_cloud)
-result = segmentation_model(rgb)
+result = segmentation_model(rgb, retina_masks=True)  # masks at the original image resolution
 
 if not len(result[0].boxes.cls):
     print("No objects detected")
@@ -567,7 +564,7 @@ for index, class_id in enumerate(classes):
 
     ros_cloud = rospy.wait_for_message("/camera/depth/points", PointCloud2)
     xyz, rgb = pointcloud2_to_array(ros_cloud)
-    result = segmentation_model(rgb)
+    result = segmentation_model(rgb, retina_masks=True)  # masks at the original image resolution
 
     if not len(result[0].boxes.cls):
         print("No objects detected")
@@ -588,7 +585,7 @@ for index, class_id in enumerate(classes):
     ```
 
 <p align="center">
-  <img width="100%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/point-cloud-segmentation-ultralytics.avif" alt="Point Cloud Segmentation with Ultralytics ">
+  <img width="100%" src="https://cdn.ul.run/i/64dcd540f380254f5a98e570b34c64f2.avif" alt="Point Cloud Segmentation with Ultralytics ">
 </p>
 
 ## Conclusion
@@ -658,7 +655,7 @@ To visualize 3D point clouds in ROS with YOLO:
 2. Use YOLO to segment RGB images.
 3. Apply the segmentation mask to the point cloud.
 
-Here's an example using [Open3D](https://www.open3d.org/) for visualization:
+Here's an example using [Open3D](https://www.open3d.org/docs/release/tutorial/geometry/pointcloud.html) for visualization:
 
 ```python
 import sys
@@ -686,7 +683,7 @@ def pointcloud2_to_array(pointcloud2):
 
 ros_cloud = rospy.wait_for_message("/camera/depth/points", PointCloud2)
 xyz, rgb = pointcloud2_to_array(ros_cloud)
-result = segmentation_model(rgb)
+result = segmentation_model(rgb, retina_masks=True)  # masks at the original image resolution
 
 if not len(result[0].boxes.cls):
     print("No objects detected")

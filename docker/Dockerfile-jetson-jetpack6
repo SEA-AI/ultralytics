@@ -8,7 +8,6 @@ FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     UV_BREAK_SYSTEM_PACKAGES=1
@@ -40,19 +39,18 @@ RUN dpkg -i cuda-keyring_1.1-1_all.deb && \
 # Create working directory
 WORKDIR /ultralytics
 
-# Copy contents and configure git
+# Copy contents and configure dependencies
 COPY . .
-RUN sed -i '/^\[http "https:\/\/github\.com\/"\]/,+1d' .git/config && \
-    sed -i'' -e 's/"opencv-python/"opencv-python-headless/' pyproject.toml
+RUN sed -i'' -e 's/"opencv-python/"opencv-python-headless/' pyproject.toml
 ADD https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt .
 
 # Pip install onnxruntime-gpu, torch, torchvision and ultralytics, then remove build files
 RUN python3 -m pip install --upgrade pip uv && \
-    uv pip install --system \
+    uv pip install --system --no-cache \
     https://github.com/ultralytics/assets/releases/download/v0.0.0/onnxruntime_gpu-1.23.0-cp310-cp310-linux_aarch64.whl \
     https://github.com/ultralytics/assets/releases/download/v0.0.0/torch-2.10.0-cp310-cp310-linux_aarch64.whl \
     https://github.com/ultralytics/assets/releases/download/v0.0.0/torchvision-0.25.0-cp310-cp310-linux_aarch64.whl && \
-    uv pip install --system -e ".[export]" && \
+    uv pip install --system --no-cache -e ".[export]" && \
     # Remove extra build files
     rm -rf *.whl /root/.config/Ultralytics/persistent_cache.json
 

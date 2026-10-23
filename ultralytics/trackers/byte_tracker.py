@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import numpy as np
@@ -30,7 +31,7 @@ class STrack(BaseTrack):
         score (float): Confidence score of the track.
         tracklet_len (int): Length of the tracklet.
         cls (Any): Class label for the object.
-        idx (int): Index or identifier for the object.
+        idx (int): Index of the matched detection in the current frame's detection set.
         frame_id (int): Current frame ID.
         start_frame (int): Frame where the object was first detected.
         angle (float | None): Optional angle information for oriented bounding boxes.
@@ -46,7 +47,7 @@ class STrack(BaseTrack):
 
     Examples:
         Initialize and activate a new track
-        >>> track = STrack(xywh=[100, 200, 50, 80, 0], score=0.9, cls="person")
+        >>> track = STrack(xywh=np.array([100, 200, 50, 80, 0]), score=0.9, cls="person")
         >>> track.activate(kalman_filter=KalmanFilterXYAH(), frame_id=1)
     """
 
@@ -64,6 +65,8 @@ class STrack(BaseTrack):
         super().__init__()
         # xywh+idx or xywha+idx
         assert len(xywh) in {5, 6}, f"expected 5 or 6 values but got {len(xywh)}"
+        if len(xywh) == 6 and xywh[2] < xywh[3]:  # long-edge form keeps equivalent OBB measurements consistent
+            xywh = xywh[[0, 1, 3, 2, 4, 5]] + np.array([0, 0, 0, 0, np.pi / 2, 0])
         self._tlwh = np.asarray(xywh2ltwh(xywh[:4]), dtype=np.float32)
         self.kalman_filter = None
         self.mean, self.covariance = None, None
@@ -87,7 +90,7 @@ class STrack(BaseTrack):
         """Perform multi-object predictive tracking using Kalman filter for the provided list of STrack instances."""
         if not stracks:
             return
-        multi_mean = np.asarray([st.mean.copy() for st in stracks])
+        multi_mean = np.asarray([st.mean for st in stracks])
         multi_covariance = np.asarray([st.covariance for st in stracks])
         for i, st in enumerate(stracks):
             if st.state != TrackState.Tracked:
@@ -123,7 +126,8 @@ class STrack(BaseTrack):
             self.track_id = self.next_id()
         self.score = new_track.score
         self.cls = new_track.cls
-        self.angle = new_track.angle
+        if self.angle is not None:  # keep the half-turn form (θ or θ ± π) nearest the track angle, so it never flips
+            self.angle = new_track.angle - np.pi * round((new_track.angle - self.angle) / np.pi)
         self.idx = new_track.idx
 
     def update(self, new_track: STrack, frame_id: int):
@@ -135,8 +139,9 @@ class STrack(BaseTrack):
 
         Examples:
             Update the state of a track with new detection information
-            >>> track = STrack([100, 200, 50, 80, 0], score=0.9, cls=0)
-            >>> new_track = STrack([105, 205, 55, 85, 0], score=0.95, cls=0)
+            >>> track = STrack(np.array([100, 200, 50, 80, 0]), score=0.9, cls=0)
+            >>> track.activate(KalmanFilterXYAH(), 1)
+            >>> new_track = STrack(np.array([105, 205, 55, 85, 0]), score=0.95, cls=0)
             >>> track.update(new_track, 2)
         """
         self.frame_id = frame_id
@@ -151,7 +156,8 @@ class STrack(BaseTrack):
 
         self.score = new_track.score
         self.cls = new_track.cls
-        self.angle = new_track.angle
+        if self.angle is not None:  # keep the half-turn form (θ or θ ± π) nearest the track angle, so it never flips
+            self.angle = new_track.angle - np.pi * round((new_track.angle - self.angle) / np.pi)
         self.idx = new_track.idx
 
     def convert_coords(self, tlwh: np.ndarray) -> np.ndarray:
@@ -170,8 +176,8 @@ class STrack(BaseTrack):
 
     @property
     def xyxy(self) -> np.ndarray:
-        """Convert bounding box from (top left x, top left y, width, height) to (min x, min y, max x, max y) format."""
-        ret = self.tlwh.copy()
+        """Get the bounding box in (min x, min y, max x, max y) format from the current state estimate."""
+        ret = self.tlwh  # already a fresh array, safe to mutate
         ret[2:] += ret[:2]
         return ret
 
@@ -200,7 +206,7 @@ class STrack(BaseTrack):
 
     @property
     def result(self) -> list[float]:
-        """Get the current tracking results in the appropriate bounding box format."""
+        """Get the current tracking result as `[*box, track_id, score, cls, idx]`, with box in xyxy or xywha (OBB)."""
         coords = self.xyxy if self.angle is None else self.xywha
         return [*coords.tolist(), self.track_id, self.score, self.cls, self.idx]
 
@@ -220,8 +226,9 @@ class BYTETracker:
         tracked_stracks (list[STrack]): List of successfully activated tracks.
         lost_stracks (list[STrack]): List of lost tracks.
         removed_stracks (list[STrack]): List of removed tracks.
+        removed_stracks_frame (list[STrack]): Tracks removed in the most recent frame.
         frame_id (int): The current frame ID.
-        args (Namespace): Command-line arguments.
+        args (Namespace): Tracker configuration parsed from the tracker YAML (e.g. bytetrack.yaml).
         max_frames_lost (int): The maximum frames for a track to be considered as 'lost'.
         kalman_filter (KalmanFilterXYAH): Kalman Filter object.
 
@@ -231,17 +238,18 @@ class BYTETracker:
         init_track: Initialize object tracking with detections.
         get_dists: Calculate the distance between tracks and detections.
         multi_predict: Predict the location of tracks.
-        reset_id: Reset the ID counter of STrack.
+        reset_id: Restart this tracker's track IDs at 1.
         reset: Reset the tracker by clearing all tracks.
-        joint_stracks: Combine two lists of stracks.
-        sub_stracks: Filter out the stracks present in the second list from the first list.
-        remove_duplicate_stracks: Remove duplicate stracks based on IoU.
 
     Examples:
         Initialize BYTETracker and update with detection results
+        >>> from ultralytics import YOLO
+        >>> from ultralytics.utils import YAML, IterableSimpleNamespace
+        >>> from ultralytics.utils.checks import check_yaml
+        >>> args = IterableSimpleNamespace(**YAML.load(check_yaml("bytetrack.yaml")))
         >>> tracker = BYTETracker(args)
-        >>> results = yolo_model.detect(image)
-        >>> tracked_objects = tracker.update(results)
+        >>> result = YOLO("yolo26n.pt")("https://ultralytics.com/images/bus.jpg")[0]
+        >>> tracked_objects = tracker.update(result.boxes.cpu().numpy(), result.orig_img)
     """
 
     track_class = STrack
@@ -250,7 +258,8 @@ class BYTETracker:
         """Initialize a BYTETracker instance for object tracking.
 
         Args:
-            args (Namespace): Command-line arguments containing tracking parameters.
+            args (Namespace): Tracker configuration containing `track_high_thresh`, `track_low_thresh`,
+                `new_track_thresh`, `track_buffer`, `match_thresh`, and `fuse_score`.
         """
         self.tracked_stracks: list[STrack] = []
         self.lost_stracks: list[STrack] = []
@@ -263,7 +272,19 @@ class BYTETracker:
         self.reset_id()
 
     def update(self, results, img: np.ndarray | None = None, feats: np.ndarray | None = None, **kwargs) -> np.ndarray:
-        """Update the tracker with new detections and return the current list of tracked objects."""
+        """Update the tracker with new detections and return the current list of tracked objects.
+
+        Args:
+            results (Any): NumPy-backed detections (e.g. `Boxes` or `OBB` after `.cpu().numpy()`) exposing `conf`,
+                `cls`, and `xywh` (or `xywhr`), and supporting boolean indexing.
+            img (np.ndarray | None): Current BGR frame, used for GMC and external ReID models.
+            feats (np.ndarray | None): Optional per-detection features for native (`model="auto"`) ReID.
+            **kwargs (Any): Additional tracker-specific inputs, ignored by BYTETracker.
+
+        Returns:
+            (np.ndarray): Array of shape (N, 8) with `[x1, y1, x2, y2, track_id, score, cls, idx]` rows, or (N, 9) with
+                `[x, y, w, h, angle, track_id, score, cls, idx]` rows for OBB, where `idx` is the detection index.
+        """
         self.frame_id += 1
         activated_stracks = []
         refind_stracks = []
@@ -276,6 +297,7 @@ class BYTETracker:
         for tracks, mask in ((detections, mask_high), (detections_second, mask_low)):
             for track, i in zip(tracks, np.flatnonzero(mask)):
                 track.idx = i  # idx must be in full detection-set space; parse_bboxes only sees the subset
+                track.next_id = self._ids.__next__  # IDs are per tracker, so other trackers cannot reissue them
 
         unconfirmed, tracked_stracks = self._split_tracked()
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
@@ -299,20 +321,22 @@ class BYTETracker:
         return self._format_output()
 
     def _split_detections(self, results: Any) -> tuple[Any, Any, np.ndarray, np.ndarray]:
-        """Split detections into high-confidence and low-confidence subsets.
+        """Split detections into high-confidence and low-confidence subsets, dropping degenerate boxes.
 
         Args:
-            results (Any): Results-like object with ``conf`` attribute supporting boolean indexing.
+            results (Any): Results-like object with ``conf`` and ``xywh``/``xywhr`` attributes supporting boolean
+                indexing.
 
         Returns:
             (tuple[Any, Any, np.ndarray, np.ndarray]): High-confidence results, low-confidence results, high mask, and
                 low mask.
         """
         scores = results.conf
-        remain_inds = scores >= self.args.track_high_thresh
-        inds_low = scores > self.args.track_low_thresh
-        inds_below_high = scores < self.args.track_high_thresh
-        return results[remain_inds], results[inds_low & inds_below_high], remain_inds, inds_low & inds_below_high
+        wh = (results.xywhr if hasattr(results, "xywhr") else results.xywh)[:, 2:4]
+        valid = (wh[:, 0] > 0) & (wh[:, 1] > 0)  # tlwh_to_xyah divides by height, so h=0 would give an inf Kalman mean
+        remain_inds = valid & (scores >= self.args.track_high_thresh)
+        inds_low = valid & (scores > self.args.track_low_thresh) & (scores < self.args.track_high_thresh)
+        return results[remain_inds], results[inds_low], remain_inds, inds_low
 
     def _input_for(self, img: np.ndarray | None, feats: np.ndarray | None, mask: np.ndarray) -> Any:
         """Return the per-detection auxiliary input for ``init_track``.
@@ -352,7 +376,7 @@ class BYTETracker:
         self, strack_pool: list[STrack], unconfirmed: list[STrack], img: np.ndarray | None, results_high: Any
     ) -> None:
         """Hook called after Kalman predict, before first-stage assignment. Default: GMC if available."""
-        if hasattr(self, "gmc") and img is not None:
+        if hasattr(self, "gmc") and self.gmc.method is not None and img is not None:
             try:
                 warp = self.gmc.apply(img, results_high.xyxy)
             except Exception as e:
@@ -432,9 +456,8 @@ class BYTETracker:
 
         for it in u_track:
             track = r_tracked_stracks[it]
-            if track.state != TrackState.Lost:
-                track.mark_lost()
-                lost.append(track)
+            track.mark_lost()
+            lost.append(track)
 
     def _unconfirmed_association(
         self,
@@ -512,10 +535,9 @@ class BYTETracker:
         """Predict the next states for multiple tracks using Kalman filter."""
         STrack.multi_predict(tracks)
 
-    @staticmethod
-    def reset_id():
-        """Reset the ID counter for STrack instances to ensure unique track IDs across tracking sessions."""
-        STrack.reset_id()
+    def reset_id(self):
+        """Restart this tracker's track IDs at 1."""
+        self._ids = iter(range(1, sys.maxsize))
 
     def reset(self):
         """Reset the tracker by clearing all tracked, lost, and removed tracks and reinitializing the Kalman filter."""

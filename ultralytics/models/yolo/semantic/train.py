@@ -5,8 +5,8 @@ from __future__ import annotations
 from copy import copy
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from ultralytics.data.utils import add_polygon_background
 from ultralytics.models import yolo
@@ -46,19 +46,19 @@ class SemanticSegmentationTrainer(DetectionTrainer):
         """Parse the dataset YAML and add background metadata for polygon labels when required."""
         return add_polygon_background(super().get_dataset())
 
-    def get_model(self, cfg: str | None = None, weights: str | None = None, verbose: bool = True):
+    def get_model(self, cfg: str | dict | None = None, weights: torch.nn.Module | None = None, verbose: bool = True):
         """Return a SemanticSegmentationModel with optional pretrained backbone.
 
         Args:
-            cfg (str, optional): Path to model configuration file.
-            weights (str | Path, optional): Path to model weights.
+            cfg (str | dict, optional): Model configuration file path or dictionary.
+            weights (torch.nn.Module, optional): Pretrained model whose weights are loaded into the new model.
             verbose (bool): Whether to display model information.
 
         Returns:
             (SemanticSegmentationModel): Semantic segmentation model.
         """
-        model = SemanticSegmentationModel(
-            cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1
+        model = self.set_model_names_for_load(
+            SemanticSegmentationModel(cfg, nc=self.data["nc"], ch=self.data["channels"], verbose=verbose and RANK == -1)
         )
         if weights:
             model.load(weights)
@@ -114,6 +114,8 @@ class SemanticSegmentationTrainer(DetectionTrainer):
         Samples up to 1000 mask files from the training dataset, accumulates per-class pixel
         counts, and plots a bar chart of class distribution saved to 'labels.jpg'.
         """
+        import matplotlib.pyplot as plt
+
         LOGGER.info(f"Plotting labels to {self.save_dir / 'labels.jpg'}...")
         nc = self.data["nc"]
         names = self.data["names"]

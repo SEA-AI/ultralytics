@@ -11,7 +11,9 @@ import os
 import platform
 import re
 import socket
+import stat
 import sys
+import tempfile
 import threading
 import time
 import warnings
@@ -27,7 +29,8 @@ import torch
 
 from ultralytics import __version__
 from ultralytics.utils.git import GitRepo
-from ultralytics.utils.patches import imread, imshow, imwrite, torch_save  # for patches
+from ultralytics.utils.patches import imread as imread  # re-export for backwards compatibility
+from ultralytics.utils.patches import imread_unicode, imshow, imwrite, torch_save  # for patches
 from ultralytics.utils.tqdm import TQDM  # noqa
 
 
@@ -52,9 +55,10 @@ def env_bool(name: str, default: bool = False) -> bool:
     return default if v is None else v.strip().lower() in {"1", "true", "yes", "on", "y", "t"}
 
 
-# PyTorch Multi-GPU DDP Constants
-RANK = int(os.getenv("RANK", "-1"))
-LOCAL_RANK = int(os.getenv("LOCAL_RANK", "-1"))  # https://pytorch.org/docs/stable/elastic/run.html
+# PyTorch Multi-GPU DDP Constants, trusted only in real DDP workers, i.e. WORLD_SIZE > 1 (#16446)
+WORLD_SIZE = int(os.getenv("WORLD_SIZE", "1"))
+RANK = int(os.getenv("RANK", "-1")) if WORLD_SIZE > 1 else -1
+LOCAL_RANK = int(os.getenv("LOCAL_RANK", "-1")) if WORLD_SIZE > 1 else -1
 
 # Other Constants
 ARGV = sys.argv or ["", ""]  # sometimes sys.argv = []
@@ -93,16 +97,24 @@ RKNN_CHIPS = frozenset(
         "rv1126b",
     }
 )  # Rockchip processors available for export
-QNN_HTP_ARCHS = frozenset(
-    {
-        "68",  # Snapdragon 888
-        "69",  # Snapdragon 8 Gen 1
-        "73",  # Snapdragon 8 Gen 2 / X Elite
-        "75",  # Snapdragon 8 Gen 3
-        "79",  # Snapdragon 8 Elite
-        "81",  # Snapdragon 8 Elite Gen 5
-    }
-)  # Qualcomm Hexagon HTP architecture versions available for QNN export
+QNN_HTP_TARGETS = {
+    "68": ("htp_arch", "68"),  # Snapdragon 888
+    "69": ("htp_arch", "69"),  # Snapdragon 8 Gen 1
+    "73": ("htp_arch", "73"),  # Snapdragon 8 Gen 2 / X Elite
+    "75": ("htp_arch", "75"),  # Snapdragon 8 Gen 3
+    "79": ("soc_model", "69"),  # Snapdragon 8 Elite (SM8750)
+    "81": ("htp_arch", "81"),  # Snapdragon 8 Elite Gen 5
+    "iq-8275": ("soc_model", "82"),  # Dragonwing IQ-8275
+    "qcs8275": ("soc_model", "82"),
+}  # Qualcomm Hexagon HTP targets and their ONNX Runtime QNN provider option
+XILINX_TARGETS = (
+    "ve2-xc2ve3858",
+    "ve2-xc2ve3504",
+    "ve2-xc2ve3558",
+    "ve2-xc2ve3804",
+    "ve2-xc2ve3304",
+    "ve2-xc2ve3358",
+)  # AMD Versal AI Edge Series Gen 2 Vitis AI compiler devices, the first is the VEK385 evaluation kit default
 HELP_MSG = """
     Examples for running Ultralytics:
 
@@ -130,7 +142,7 @@ HELP_MSG = """
 
             yolo TASK MODE ARGS
 
-            Where   TASK (optional) is one of [detect, segment, semantic, classify, pose, obb, depth]
+            Where   TASK (optional) is one of [detect, segment, semantic, depth, classify, pose, obb]
                     MODE (required) is one of [train, val, predict, export, track, benchmark]
                     ARGS (optional) are any number of custom "arg=value" pairs like "imgsz=320" that override defaults.
                         See all ARGS at https://docs.ultralytics.com/usage/cfg or with "yolo cfg"
@@ -187,21 +199,21 @@ class DataExportMixin:
     """Mixin class for exporting validation metrics or prediction results in various formats.
 
     This class provides utilities to export performance metrics (e.g., mAP, precision, recall) or prediction results
-    from classification, object detection, segmentation, or pose estimation tasks into various formats: Polars
-    DataFrame, CSV, and JSON.
+    from detection, segmentation, depth, classification, or pose estimation tasks into various formats: Polars
+    DataFrame, CSV, and JSON. Subclasses must implement a `summary(normalize, decimals)` method.
 
     Methods:
         to_df: Convert summary to a Polars DataFrame.
         to_csv: Export results as a CSV string.
         to_json: Export results as a JSON string.
-        tojson: Deprecated alias for `to_json()`.
 
     Examples:
+        >>> from ultralytics import YOLO
         >>> model = YOLO("yolo26n.pt")
         >>> results = model("image.jpg")
-        >>> df = results.to_df()
+        >>> df = results[0].to_df()
         >>> print(df)
-        >>> csv_data = results.to_csv()
+        >>> csv_data = results[0].to_csv()
     """
 
     def to_df(self, normalize=False, decimals=5):
@@ -279,11 +291,7 @@ class SimpleClass:
         ...         self.x = 10
         ...         self.y = "hello"
         >>> obj = MyClass()
-        >>> print(obj)
-        __main__.MyClass object with attributes:
-
-        x: 10
-        y: 'hello'
+        >>> text = str(obj)  # "<module>.MyClass object with attributes:" followed by "x: 10" and "y: 'hello'"
 
     Notes:
         - This class is designed to be subclassed. It provides a convenient way to inspect object attributes.
@@ -378,23 +386,20 @@ def plt_settings(rcparams=None, backend="Agg"):
     """Decorator to temporarily set rc parameters and the backend for a plotting function.
 
     Args:
-        rcparams (dict, optional): Dictionary of rc parameters to set.
+        rcparams (dict, optional): Dictionary of rc parameters to set. Defaults to {"font.size": 11}.
         backend (str, optional): Name of the backend to use.
 
     Returns:
-        (Callable): Decorated function with temporarily set rc parameters and backend.
+        (Callable): Decorator that runs the wrapped function with temporarily set rc parameters and backend.
 
     Examples:
+        >>> import matplotlib.pyplot as plt
+        >>> from ultralytics.utils import plt_settings
         >>> @plt_settings({"font.size": 12})
         ... def plot_function():
         ...     plt.figure()
         ...     plt.plot([1, 2, 3])
-        ...     plt.show()
-
-        >>> with plt_settings({"font.size": 12}):
-        ...     plt.figure()
-        ...     plt.plot([1, 2, 3])
-        ...     plt.show()
+        ...     plt.savefig("plot.png")
     """
     if rcparams is None:
         rcparams = {"font.size": 11}
@@ -425,6 +430,12 @@ def plt_settings(rcparams=None, backend="Agg"):
             original_backend = plt.get_backend()
             switch = backend.lower() != original_backend.lower()
             if switch:
+                # Resolve configured backends first, as get_backend() may return an unavailable backend name
+                if plt._backend_mod is None:
+                    try:
+                        plt.switch_backend(original_backend)
+                    except ImportError:
+                        original_backend = None
                 plt.close("all")  # auto-close()ing of figures upon backend switching is deprecated since 3.8
                 plt.switch_backend(backend)
 
@@ -435,7 +446,8 @@ def plt_settings(rcparams=None, backend="Agg"):
             finally:
                 if switch:
                     plt.close("all")
-                    plt.switch_backend(original_backend)
+                    if original_backend:
+                        plt.switch_backend(original_backend)
             return result
 
         wrapper._fonts_registered = False
@@ -444,7 +456,7 @@ def plt_settings(rcparams=None, backend="Agg"):
     return decorator
 
 
-def set_logging(name="LOGGING_NAME", verbose=True):
+def set_logging(name=LOGGING_NAME, verbose=True):
     """Set up logging with UTF-8 encoding and configurable verbosity.
 
     This function configures logging for the Ultralytics library, setting the appropriate logging level and formatter
@@ -465,7 +477,7 @@ def set_logging(name="LOGGING_NAME", verbose=True):
 
     Notes:
         - On Windows, this function attempts to reconfigure stdout to use UTF-8 encoding if possible.
-        - If reconfiguration is not possible, it falls back to a custom formatter that handles non-UTF-8 environments.
+        - On Windows, emojis are removed from log messages.
         - The function sets up a StreamHandler with the appropriate formatter and level.
         - The logger's propagate flag is set to False to prevent duplicate logging in parent loggers.
     """
@@ -502,11 +514,14 @@ def set_logging(name="LOGGING_NAME", verbose=True):
 
     # Create and configure the StreamHandler with the appropriate formatter and level
     stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.set_name("ultralytics.utils.set_logging")
     stream_handler.setFormatter(formatter)
     stream_handler.setLevel(level)
 
     # Set up the logger
     logger = logging.getLogger(name)
+    for h in [h for h in logger.handlers if h.name == stream_handler.name]:
+        logger.removeHandler(h)
     logger.setLevel(level)
     logger.addHandler(stream_handler)
     logger.propagate = False
@@ -519,8 +534,8 @@ logging.getLogger("sentry_sdk").setLevel(logging.CRITICAL + 1)
 
 
 def emojis(string=""):
-    """Return platform-dependent emoji-safe version of string."""
-    return string.encode().decode("ascii", "ignore") if WINDOWS else string
+    """Return platform-dependent emoji-safe version of string, removing only the package's emojis on Windows."""
+    return string.translate(str.maketrans("", "", "🚀✅❌⚠💡⚡⏱❎❔😃\ufe0f")) if WINDOWS else string
 
 
 class ThreadingLocked:
@@ -536,7 +551,7 @@ class ThreadingLocked:
         >>> from ultralytics.utils import ThreadingLocked
         >>> @ThreadingLocked()
         ... def my_function():
-        ...    # Your code here
+        ...     pass  # your code here
     """
 
     def __init__(self):
@@ -577,6 +592,7 @@ class YAML:
         SafeDumper: Best available YAML dumper (CSafeDumper if available).
 
     Examples:
+        >>> from ultralytics.utils import YAML
         >>> data = YAML.load("config.yaml")
         >>> data["new_value"] = 123
         >>> YAML.save("updated_config.yaml", data)
@@ -611,7 +627,8 @@ class YAML:
 
         Args:
             file (str | Path): Path to save YAML file.
-            data (dict | None): Dict or compatible object to save.
+            data (dict | None): Dict to save. Top-level values of non-YAML-serializable types are converted to strings
+                in place.
             header (str): Optional string to add at file beginning.
         """
         instance = cls._get_instance()
@@ -643,10 +660,14 @@ class YAML:
             append_filename (bool): Whether to add filename to returned dict.
 
         Returns:
-            (dict): Loaded YAML content.
+            (dict): Loaded YAML content, or an empty dict for an empty file.
+
+        Raises:
+            AssertionError: If the file does not have a .yaml or .yml suffix.
+            ValueError: If the file contains a YAML syntax error or is not a YAML mapping.
         """
         instance = cls._get_instance()
-        assert str(file).endswith((".yaml", ".yml")), f"Not a YAML file: {file}"
+        assert str(file).lower().endswith((".yaml", ".yml")), f"Not a YAML file: {file}"
 
         # Read file content
         with open(file, errors="ignore", encoding="utf-8") as f:
@@ -818,7 +839,7 @@ def is_jetson(jetpack=None) -> bool:
     """Determine if the Python environment is running on an NVIDIA Jetson device.
 
     Args:
-        jetpack (int | None): If specified, check for specific JetPack version (4, 5, 6).
+        jetpack (int | None): If specified, check for specific JetPack version (4, 5, 6, 7).
 
     Returns:
         (bool): True if running on an NVIDIA Jetson device, False otherwise.
@@ -827,8 +848,8 @@ def is_jetson(jetpack=None) -> bool:
     if jetson and jetpack:
         try:
             content = Path("/etc/nv_tegra_release").read_text()
-            version_map = {4: "R32", 5: "R35", 6: "R36", 7: "R38"}  # JetPack to L4T major version mapping
-            return jetpack in version_map and version_map[jetpack] in content
+            version_map = {4: ("R32",), 5: ("R35",), 6: ("R36",), 7: ("R38", "R39")}  # JetPack to L4T major versions
+            return any(r in content for r in version_map.get(jetpack, ()))
         except Exception:
             return False
     return jetson
@@ -866,13 +887,13 @@ def is_online() -> bool:
 
 
 def is_pip_package(filepath: str = __name__) -> bool:
-    """Determine if the file at the given filepath is part of a pip package.
+    """Determine if the given module is importable from an installed package.
 
     Args:
-        filepath (str): The filepath to check.
+        filepath (str): The dotted module name to check, e.g. 'ultralytics.utils'.
 
     Returns:
-        (bool): True if the file is part of a pip package, False otherwise.
+        (bool): True if the module spec is found and has an origin, False otherwise.
     """
     import importlib.util
 
@@ -930,7 +951,7 @@ def get_ubuntu_version():
     """Retrieve the Ubuntu version if the OS is Ubuntu.
 
     Returns:
-        (str): Ubuntu version or None if not an Ubuntu OS.
+        (str | None): Ubuntu version, e.g. '22.04', or None if not an Ubuntu OS.
     """
     if is_ubuntu():
         try:
@@ -948,6 +969,9 @@ def get_user_config_dir(sub_dir="Ultralytics"):
 
     Returns:
         (Path): The path to the user config directory.
+
+    Raises:
+        ValueError: If the operating system is not supported and YOLO_CONFIG_DIR is not set.
     """
     if env_dir := os.getenv("YOLO_CONFIG_DIR"):
         p = Path(env_dir).expanduser() / sub_dir
@@ -960,27 +984,22 @@ def get_user_config_dir(sub_dir="Ultralytics"):
     else:
         raise ValueError(f"Unsupported operating system: {platform.system()}")
 
-    if p.exists():  # already created → trust it
-        return p
-    if is_dir_writeable(p.parent):  # create if possible
+    with contextlib.suppress(OSError):  # create if possible
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    # Fallbacks for Docker, GCP/AWS functions where only /tmp is writable
-    for alt in [Path("/tmp") / sub_dir, Path.cwd() / sub_dir]:
-        if alt.exists():
-            return alt
-        if is_dir_writeable(alt.parent):
-            alt.mkdir(parents=True, exist_ok=True)
-            LOGGER.warning(
-                f"user config directory '{p}' is not writable, using '{alt}'. Set YOLO_CONFIG_DIR to override."
-            )
-            return alt
-
-    # Last fallback → CWD
-    p = Path.cwd() / sub_dir
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    # Fallback for Docker, GCP/AWS functions where only /tmp is writable, private to the current user
+    alt = Path(tempfile.gettempdir()) / (sub_dir if WINDOWS else f"{sub_dir}-{os.getuid()}")
+    try:
+        alt.mkdir(mode=0o777 if WINDOWS else 0o700)  # a Windows 0o700 DACL locks out non-elevated runs
+    except OSError:
+        with contextlib.suppress(OSError):  # own private dir only, never a symlink; Windows %TEMP% is per-user
+            info = alt.lstat()
+            if stat.S_ISDIR(info.st_mode) and (WINDOWS or (info.st_uid, info.st_mode & 0o777) == (os.getuid(), 0o700)):
+                return alt
+        alt = Path(tempfile.mkdtemp(prefix=f"{sub_dir}-"))  # otherwise a new private dir for this process
+    LOGGER.warning(f"user config directory '{p}' is not writable, using '{alt}'. Set YOLO_CONFIG_DIR to override.")
+    return alt
 
 
 # Define constants (required below)
@@ -1018,7 +1037,7 @@ def colorstr(*input):
 
     Examples:
         >>> colorstr("blue", "bold", "hello world")
-        "\033[34m\033[1mhello world\033[0m"
+        '\x1b[34m\x1b[1mhello world\x1b[0m'
 
     Notes:
         Supported Colors and Styles:
@@ -1066,7 +1085,7 @@ def remove_colorstr(input_string):
 
     Examples:
         >>> remove_colorstr(colorstr("blue", "bold", "hello world"))
-        "hello world"
+        'hello world'
     """
     ansi_escape = re.compile(r"\x1B\[[0-9;]*[A-Za-z]")
     return ansi_escape.sub("", input_string)
@@ -1118,8 +1137,9 @@ class Retry(contextlib.ContextDecorator):
     other unreliable processes.
 
     Attributes:
-        times (int): Maximum number of retry attempts.
-        delay (int): Initial delay between retries in seconds.
+        times (int): Maximum number of attempts, including the first call.
+        delay (int): Base delay in seconds; the wait after the n-th failed attempt is `delay * 2**n`.
+        verbose (bool): Whether to log a warning for each failed attempt.
 
     Examples:
         Example usage as a decorator:
@@ -1129,10 +1149,11 @@ class Retry(contextlib.ContextDecorator):
         ...     return True
     """
 
-    def __init__(self, times=3, delay=2):
+    def __init__(self, times=3, delay=2, verbose=True):
         """Initialize Retry class with specified number of retries and delay."""
         self.times = times
         self.delay = delay
+        self.verbose = verbose  # False when the caller's own logging would feed back into its retries
         self._attempts = 0
 
     def __call__(self, func):
@@ -1146,7 +1167,8 @@ class Retry(contextlib.ContextDecorator):
                     return func(*args, **kwargs)
                 except Exception as e:
                     self._attempts += 1
-                    LOGGER.warning(f"Retry {self._attempts}/{self.times} failed: {e}")
+                    if self.verbose:
+                        LOGGER.warning(f"Retry {self._attempts}/{self.times} failed: {e}")
                     if self._attempts >= self.times:
                         raise
                     time.sleep(self.delay * (2**self._attempts))  # exponential backoff delay
@@ -1200,7 +1222,7 @@ def set_sentry():
     Conditions required to send errors (ALL conditions must be met or no errors will be reported):
         - sentry_sdk package is installed
         - sync=True in YOLO settings
-        - pytest is not running
+        - pytest and GitHub Actions are not running
         - running in a pip package installation
         - running in a non-git directory
         - running with rank -1 or 0
@@ -1238,6 +1260,7 @@ def set_sentry():
             if exc_type in {KeyboardInterrupt, FileNotFoundError} or "out of memory" in str(exc_value):
                 return None  # do not send event
 
+        event.get("extra", {}).pop("sys.argv", None)
         event["tags"] = {
             "sys_argv": ARGV[0],
             "sys_argv_name": Path(ARGV[0]).name,
@@ -1250,6 +1273,7 @@ def set_sentry():
         dsn="https://888e5a0778212e1d0314c37d4b9aae5d@o4504521589325824.ingest.us.sentry.io/4504521592406016",
         debug=False,
         auto_enabling_integrations=False,
+        include_local_variables=False,
         traces_sample_rate=1.0,
         release=__version__,
         environment="runpod" if is_runpod() else "production",
@@ -1378,7 +1402,7 @@ class SettingsManager(JSONDict):
         /new/runs/dir
     """
 
-    def __init__(self, file=SETTINGS_FILE, version="0.0.6"):
+    def __init__(self, file=SETTINGS_FILE, version="0.0.8"):
         """Initialize the SettingsManager with default settings and load user settings."""
         import hashlib
         import uuid
@@ -1402,9 +1426,7 @@ class SettingsManager(JSONDict):
             "clearml": True,  # ClearML integration
             "comet": True,  # Comet integration
             "dvc": True,  # DVC integration
-            "hub": True,  # Ultralytics HUB integration
             "mlflow": True,  # MLflow integration
-            "neptune": True,  # Neptune integration
             "raytune": True,  # Ray Tune integration
             "tensorboard": False,  # TensorBoard logging
             "wandb": False,  # Weights & Biases logging
@@ -1415,7 +1437,7 @@ class SettingsManager(JSONDict):
         self.help_msg = (
             f"\nView Ultralytics Settings with 'yolo settings' or at '{self.file}'"
             "\nUpdate Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. "
-            "For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings."
+            "For help see https://docs.ultralytics.com/usage/settings."
         )
 
         with torch_distributed_zero_first(LOCAL_RANK):
@@ -1428,17 +1450,27 @@ class SettingsManager(JSONDict):
             self._validate_settings()
 
     def _validate_settings(self):
-        """Validate the current settings and reset if necessary."""
+        """Validate settings and migrate valid values to the current schema."""
         correct_keys = frozenset(self.keys()) == frozenset(self.defaults.keys())
         correct_types = all(isinstance(self.get(k), type(v)) for k, v in self.defaults.items())
         correct_version = self.get("settings_version", "") == self.version
 
         if not (correct_keys and correct_types and correct_version):
             LOGGER.warning(
-                "Ultralytics settings reset to default values. This may be due to a possible problem "
-                f"with your settings or a recent ultralytics package update. {self.help_msg}"
+                "Ultralytics settings updated to the latest schema. Existing values were preserved where possible. "
+                f"{self.help_msg}"
             )
-            self.reset()
+            valid = {k: v for k, v in self.items() if k in self.defaults and isinstance(v, type(self.defaults[k]))}
+            if not re.fullmatch(r"ul_[0-9a-f]{40}", valid.get("api_key", "")):
+                if valid.get("api_key"):
+                    LOGGER.warning(
+                        f"Legacy API key removed. Get a Platform API key from {PLATFORM_URL}/settings?tab=api-keys "
+                        "and run 'yolo login API_KEY'."
+                    )
+                valid["api_key"] = ""  # discard legacy keys, which cannot authenticate with Platform
+            valid["settings_version"] = self.version
+            self.clear()
+            self.update({**self.defaults, **valid})
 
         if self.get("datasets_dir") == self.get("runs_dir"):
             LOGGER.warning(
@@ -1452,10 +1484,13 @@ class SettingsManager(JSONDict):
         self.update({key: value})
 
     def update(self, *args, **kwargs):
-        """Update settings, validating keys and types."""
-        for arg in args:
-            if isinstance(arg, dict):
-                kwargs.update(arg)
+        """Update settings, validating keys and types.
+
+        Raises:
+            KeyError: If a key is not a valid Ultralytics setting.
+            TypeError: If a value does not match the type of the setting's default.
+        """
+        kwargs = dict(*args, **kwargs)  # every form dict.update() accepts
         for k, v in kwargs.items():
             if k not in self.defaults:
                 raise KeyError(f"No Ultralytics setting '{k}'. {self.help_msg}")
@@ -1464,7 +1499,7 @@ class SettingsManager(JSONDict):
                 raise TypeError(
                     f"Ultralytics setting '{k}' must be '{t.__name__}' type, not '{type(v).__name__}'. {self.help_msg}"
                 )
-        super().update(*args, **kwargs)
+        super().update(kwargs)
 
     def reset(self):
         """Reset the settings to default and save them."""
@@ -1481,18 +1516,18 @@ def deprecation_warn(arg, new_arg=None):
 
 
 def clean_url(url):
-    """Strip auth from URL, i.e. `https://example.com/path/file.txt?auth` -> `https://example.com/path/file.txt`."""
+    """Strip auth from URL, e.g. `https://example.com/path/file.txt?auth` -> `https://example.com/path/file.txt`."""
     url = Path(url).as_posix().replace(":/", "://")  # Pathlib turns :// -> :/, as_posix() for Windows
     return unquote(url).split("?", 1)[0]  # '%2F' to '/', split authentication query strings
 
 
 def url2file(url):
-    """Convert URL to filename, i.e. `https://example.com/path/file.txt?auth` -> `file.txt`."""
+    """Convert URL to filename, e.g. `https://example.com/path/file.txt?auth` -> `file.txt`."""
     return Path(clean_url(url)).name or "download"
 
 
 def vscode_msg(ext="ultralytics.ultralytics-snippets") -> str:
-    """Display a message to install Ultralytics-Snippets for VS Code if not already installed."""
+    """Return a message to install Ultralytics-Snippets for VS Code, or an empty string if already installed."""
     path = (USER_CONFIG_DIR.parents[2] if WINDOWS else USER_CONFIG_DIR.parents[1]) / ".vscode/extensions"
     obs_file = path / ".obsolete"  # file tracks uninstalled extensions, while source directory remains
     installed = any(path.glob(f"{ext}*")) and ext not in (obs_file.read_text("utf-8") if obs_file.exists() else "")
@@ -1505,7 +1540,6 @@ def vscode_msg(ext="ultralytics.ultralytics-snippets") -> str:
 # Check first-install steps
 PREFIX = colorstr("Ultralytics: ")
 SETTINGS = SettingsManager()  # initialize settings
-PERSISTENT_CACHE = JSONDict(USER_CONFIG_DIR / "persistent_cache.json")  # initialize persistent cache
 DATASETS_DIR = Path(SETTINGS["datasets_dir"])  # global datasets directory
 WEIGHTS_DIR = Path(SETTINGS["weights_dir"])  # global weights directory
 RUNS_DIR = Path(SETTINGS["runs_dir"])  # global runs directory
@@ -1527,4 +1561,4 @@ set_sentry()
 torch.save = torch_save
 if WINDOWS:
     # Apply cv2 patches for non-ASCII and non-UTF characters in image paths
-    cv2.imread, cv2.imwrite, cv2.imshow = imread, imwrite, imshow
+    cv2.imread, cv2.imwrite, cv2.imshow = imread_unicode, imwrite, imshow

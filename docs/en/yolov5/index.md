@@ -7,13 +7,13 @@ keywords: YOLOv5, Ultralytics, object detection, computer vision, deep learning,
 <div align="center">
   <p>
     <a href="https://www.ultralytics.com/yolo" target="_blank">
-      <img width="100%" src="https://cdn.jsdelivr.net/gh/ultralytics/assets@main/docs/ultralytics-yolov5-splash.avif" alt="Ultralytics YOLOv5 v7.0 banner">
+      <img width="100%" src="https://cdn.ul.run/i/76b943ef63f00f48350f0afddcbd15f9.avif" alt="Ultralytics YOLOv5 v7.0 banner">
     </a>
   </p>
     <a href="https://github.com/ultralytics/ultralytics/actions/workflows/ci.yml"><img src="https://github.com/ultralytics/ultralytics/actions/workflows/ci.yml/badge.svg" alt="Ultralytics CI"></a>
     <a href="https://clickpy.clickhouse.com/dashboard/ultralytics"><img src="https://static.pepy.tech/badge/ultralytics" alt="Ultralytics Downloads"></a>
     <a href="https://discord.com/invite/ultralytics"><img alt="Ultralytics Discord" src="https://img.shields.io/discord/1089800235347353640?logo=discord&logoColor=white&label=Discord&color=blue"></a>
-    <a href="https://community.ultralytics.com/"><img alt="Ultralytics Forums" src="https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue"></a>
+    <a href="https://community.ultralytics.com"><img alt="Ultralytics Forums" src="https://img.shields.io/discourse/users?server=https%3A%2F%2Fcommunity.ultralytics.com&logo=discourse&label=Forums&color=blue"></a>
     <a href="https://www.reddit.com/r/ultralytics/"><img alt="Ultralytics Reddit" src="https://img.shields.io/reddit/subreddit-subscribers/ultralytics?style=flat&logo=reddit&logoColor=white&label=Reddit&color=blue"></a>
     <br>
     <a href="https://console.paperspace.com/github/ultralytics/ultralytics"><img src="https://assets.paperspace.io/img/gradient-badge.svg" alt="Run Ultralytics on Gradient"></a>
@@ -24,7 +24,7 @@ keywords: YOLOv5, Ultralytics, object detection, computer vision, deep learning,
 
 # Comprehensive Guide to Ultralytics YOLOv5
 
-Welcome to the Ultralytics [YOLOv5](https://github.com/ultralytics/yolov5)🚀 Documentation! Ultralytics YOLOv5, the fifth iteration of the revolutionary "You Only Look Once" [object detection](https://www.ultralytics.com/glossary/object-detection) model, is designed to deliver high-speed, high-accuracy results in real-time. While YOLOv5 remains a powerful tool, consider exploring its successors, [Ultralytics YOLOv8](../models/yolov8.md), [YOLO11](../models/yolo11.md), and [YOLO26](../models/yolo26.md), for the latest advancements.
+Welcome to the Ultralytics [YOLOv5](https://github.com/ultralytics/yolov5) 🚀 Documentation! Ultralytics YOLOv5, the fifth iteration of the revolutionary "You Only Look Once" [object detection](https://www.ultralytics.com/glossary/object-detection) model, is designed to deliver high-speed, high-accuracy results in real-time. While YOLOv5 remains a powerful tool, consider exploring its successors, [Ultralytics YOLOv8](../models/yolov8.md), [YOLO11](../models/yolo11.md), and [YOLO26](../models/yolo26.md), for the latest advancements.
 
 Built on [PyTorch](https://pytorch.org/), this powerful [deep learning](https://www.ultralytics.com/glossary/deep-learning-dl) framework has garnered immense popularity for its versatility, ease of use, and high performance. Our documentation guides you through the installation process, explains the architectural nuances of the model, showcases various use cases, and provides a series of detailed tutorials. These resources will help you harness the full potential of YOLOv5 for your [computer vision](https://www.ultralytics.com/glossary/computer-vision-cv) projects. Let's get started!
 
@@ -35,7 +35,7 @@ Here's a compilation of comprehensive tutorials that will guide you through diff
 - [Train Custom Data](tutorials/train-custom-data.md) 🚀 RECOMMENDED: Learn how to train the YOLOv5 model on your custom dataset.
 - [Tips for Best Training Results](tutorials/tips-for-best-training-results.md) ☘️: Uncover practical tips to optimize your model training process.
 - [Multi-GPU Training](tutorials/multi-gpu-training.md): Understand how to leverage multiple GPUs to expedite your training.
-- [PyTorch Hub](tutorials/pytorch-hub-model-loading.md) 🌟 NEW: Learn to load pretrained models via PyTorch Hub.
+- [PyTorch Hub](tutorials/pytorch-hub-model-loading.md): Learn to load pretrained models via PyTorch Hub.
 - [TFLite, ONNX, CoreML, TensorRT Export](tutorials/model-export.md) 🚀: Understand how to export your model to different formats.
 - [Test-Time Augmentation (TTA)](tutorials/test-time-augmentation.md): Explore how to use TTA to improve your model's prediction accuracy.
 - [Model Ensembling](tutorials/model-ensembling.md): Learn the strategy of combining multiple models for improved performance.
@@ -45,11 +45,11 @@ Here's a compilation of comprehensive tutorials that will guide you through diff
 - [Architecture Summary](tutorials/architecture-description.md) 🌟 Delve into the structural details of the YOLOv5 model. Read the [YOLOv5 v6.0 blog post](https://www.ultralytics.com/blog/yolov5-v6-0-is-here) for more insights.
 - [ClearML Logging Integration](tutorials/clearml-logging-integration.md) 🌟 Learn how to integrate [ClearML](https://clear.ml/) for efficient logging during your model training.
 - [YOLOv5 with Neural Magic](tutorials/neural-magic-pruning-quantization.md): Discover how to use [Neural Magic's DeepSparse](https://github.com/neuralmagic/deepsparse/blob/main/README.md) to prune and quantize your YOLOv5 model.
-- [Comet Logging Integration](tutorials/comet-logging-integration.md) 🌟 NEW: Explore how to utilize [Comet](https://www.comet.com/site/) for improved model training logging.
+- [Comet Logging Integration](tutorials/comet-logging-integration.md): Explore how to utilize [Comet](https://www.comet.com/site/) for improved model training logging.
 
 ## Supported Environments
 
-Ultralytics provides a range of ready-to-use environments, each pre-installed with essential dependencies such as [CUDA](https://developer.nvidia.com/cuda), [CuDNN](https://developer.nvidia.com/cudnn), [Python](https://www.python.org/), and [PyTorch](https://pytorch.org/), to kickstart your projects. You can also manage your models and datasets using [Ultralytics Platform](https://platform.ultralytics.com).
+Ultralytics provides a range of ready-to-use environments, each pre-installed with essential dependencies such as [CUDA](https://developer.nvidia.com/cuda), [CuDNN](https://developer.nvidia.com/cuda/cuda-x-libraries/cudnn), [Python](https://www.python.org/), and [PyTorch](https://pytorch.org/), to kickstart your projects. You can also manage your models and datasets using [Ultralytics Platform](https://platform.ultralytics.com).
 
 - **Free GPU Notebooks**: <a href="https://bit.ly/yolov5-paperspace-notebook"><img src="https://assets.paperspace.io/img/gradient-badge.svg" alt="Run on Gradient"></a> <a href="https://colab.research.google.com/github/ultralytics/yolov5/blob/master/tutorial.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a> <a href="https://www.kaggle.com/models/ultralytics/yolov5"><img src="https://kaggle.com/static/images/open-in-kaggle.svg" alt="Open In Kaggle"></a>
 - **Google Cloud**: [GCP Quickstart Guide](environments/google-cloud-quickstart-tutorial.md)
@@ -92,7 +92,7 @@ We're excited to see the innovative ways you'll use YOLOv5. Dive in, experiment,
 
 ### What are the key features of Ultralytics YOLOv5?
 
-Ultralytics YOLOv5 is renowned for its high-speed and high-[accuracy](https://www.ultralytics.com/glossary/accuracy) object detection capabilities. Built on [PyTorch](https://www.ultralytics.com/glossary/pytorch), it is versatile and user-friendly, making it suitable for various computer vision projects. Key features include real-time inference, support for multiple training tricks like Test-Time Augmentation (TTA) and Model Ensembling, and compatibility with export formats such as TFLite, ONNX, CoreML, and TensorRT. To delve deeper into how Ultralytics YOLOv5 can elevate your project, explore our [TFLite, ONNX, CoreML, TensorRT Export guide](tutorials/model-export.md).
+Ultralytics YOLOv5 is renowned for its high-speed and high-[accuracy](https://www.ultralytics.com/glossary/accuracy) object detection capabilities. Built on [PyTorch](https://www.ultralytics.com/glossary/pytorch), it is versatile and user-friendly, making it suitable for various computer vision projects. Key features include real-time inference, support for inference techniques like Test-Time Augmentation (TTA) and Model Ensembling, and compatibility with export formats such as TFLite, ONNX, CoreML, and TensorRT. To delve deeper into how Ultralytics YOLOv5 can elevate your project, explore our [TFLite, ONNX, CoreML, TensorRT Export guide](tutorials/model-export.md).
 
 ### How can I train a custom YOLOv5 model on my dataset?
 

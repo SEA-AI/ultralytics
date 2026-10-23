@@ -16,7 +16,7 @@ except (ImportError, AssertionError, AttributeError):
 
 
 def linear_assignment(cost_matrix: np.ndarray, thresh: float, use_lap: bool = True):
-    """Perform linear assignment using either lap.lapjv or the built-in NumPy solver.
+    """Perform linear assignment using either lap.lapjv or `ultralytics.utils.ops.linear_sum_assignment`.
 
     Args:
         cost_matrix (np.ndarray): The matrix containing cost values for assignments, with shape (N, M).
@@ -129,7 +129,9 @@ def embedding_distance(tracks: list, detections: list) -> np.ndarray:
     det_features = np.asarray([f if f is not None else zeros for f in det_feats], dtype=np.float32)
     track_norm = np.linalg.norm(track_features, axis=1, keepdims=True)
     det_norm = np.linalg.norm(det_features, axis=1, keepdims=True).T
-    cost_matrix = 1 - track_features @ det_features.T / np.maximum(track_norm * det_norm, np.finfo(float).eps)
+    cost_matrix = 1 - track_features @ det_features.T / np.maximum(
+        track_norm * det_norm, np.finfo(track_features.dtype).eps
+    )
     cost_matrix = np.maximum(0.0, cost_matrix)  # Normalized features
     missing_t = [i for i, f in enumerate(track_feats) if f is None]
     missing_d = [j for j, f in enumerate(det_feats) if f is None]
@@ -145,7 +147,7 @@ def fuse_score(cost_matrix: np.ndarray, detections: list) -> np.ndarray:
 
     Args:
         cost_matrix (np.ndarray): The matrix containing cost values for assignments, with shape (N, M).
-        detections (list[BaseTrack]): List of detections, each containing a score attribute.
+        detections (list[STrack]): List of detections, each exposing a `score` attribute.
 
     Returns:
         (np.ndarray): Fused cost matrix with shape (N, M).
@@ -153,7 +155,8 @@ def fuse_score(cost_matrix: np.ndarray, detections: list) -> np.ndarray:
     Examples:
         Fuse a cost matrix with detection scores
         >>> cost_matrix = np.random.rand(5, 10)  # 5 tracks and 10 detections
-        >>> detections = [BaseTrack(score=np.random.rand()) for _ in range(10)]
+        >>> from types import SimpleNamespace
+        >>> detections = [SimpleNamespace(score=s) for s in np.random.rand(10)]
         >>> fused_matrix = fuse_score(cost_matrix, detections)
     """
     if cost_matrix.size == 0:

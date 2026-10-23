@@ -19,12 +19,17 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from torch import nn
+from torch.nn.utils.fusion import fuse_conv_bn_weights
+from torch.utils._pytree import tree_flatten
 
 from ultralytics import __brand__, __version__
 from ultralytics.utils import (
+    ARM64,
     DEFAULT_CFG_DICT,
     DEFAULT_CFG_KEYS,
+    LOCAL_RANK,
     LOGGER,
+    MACOS,
     NUM_THREADS,
     PYTHON_VERSION,
     TORCH_VERSION,
@@ -32,7 +37,7 @@ from ultralytics.utils import (
     WINDOWS,
     colorstr,
 )
-from ultralytics.utils.checks import check_version
+from ultralytics.utils.checks import check_requirements, check_version
 from ultralytics.utils.cpu import CPUInfo
 from ultralytics.utils.patches import torch_load
 
@@ -43,12 +48,14 @@ TORCH_1_11 = check_version(TORCH_VERSION, "1.11.0")
 TORCH_1_13 = check_version(TORCH_VERSION, "1.13.0")
 TORCH_2_0 = check_version(TORCH_VERSION, "2.0.0")
 TORCH_2_1 = check_version(TORCH_VERSION, "2.1.0")
+TORCH_2_2 = check_version(TORCH_VERSION, "2.2.0")
 TORCH_2_3 = check_version(TORCH_VERSION, "2.3.0")
 TORCH_2_4 = check_version(TORCH_VERSION, "2.4.0")
+TORCH_2_5 = check_version(TORCH_VERSION, "2.5.0")
+TORCH_2_7 = check_version(TORCH_VERSION, "2.7.0")
 TORCH_2_8 = check_version(TORCH_VERSION, "2.8.0")
 TORCH_2_9 = check_version(TORCH_VERSION, "2.9.0")
-TORCH_2_10 = check_version(TORCH_VERSION, "2.10.0")
-TORCH_2_12 = check_version(TORCH_VERSION, "2.12.0")
+TORCH_2_13 = check_version(TORCH_VERSION, "2.13.0")
 TORCHVISION_0_10 = check_version(TORCHVISION_VERSION, "0.10.0")
 TORCHVISION_0_11 = check_version(TORCHVISION_VERSION, "0.11.0")
 TORCHVISION_0_13 = check_version(TORCHVISION_VERSION, "0.13.0")
@@ -58,6 +65,12 @@ if WINDOWS and check_version(TORCH_VERSION, "==2.4.0"):  # reject version 2.4.0 
         "Known issue with torch==2.4.0 on Windows with CPU, recommend upgrading to torch>=2.4.1 to resolve "
         "https://github.com/ultralytics/ultralytics/issues/15049"
     )
+
+
+def get_torch_device_backend(device: torch.device | str):
+    """Return the PyTorch module that owns the selected device backend."""
+    device_type = getattr(device, "type", str(device).split(":")[0])
+    return torch.get_device_module(device_type) if hasattr(torch, "get_device_module") else getattr(torch, device_type)
 
 
 @contextmanager
@@ -73,11 +86,21 @@ def torch_distributed_zero_first(local_rank: int):
         dist.barrier(device_ids=[torch.cuda.current_device()]) if use_ids else dist.barrier()
 
 
-def smart_inference_mode():
-    """Apply torch.inference_mode() decorator if torch>=1.10.0, else torch.no_grad() decorator."""
+def smart_inference_mode(mode=True):
+    """Apply or disable torch inference mode while supporting the minimum torch version."""
 
     def decorate(fn):
         """Apply appropriate torch decorator for inference mode based on torch version."""
+        if not mode:
+            if TORCH_1_9:
+
+                @functools.wraps(fn)
+                def disable(*args, **kwargs):
+                    with torch.inference_mode(False), torch.no_grad():
+                        return fn(*args, **kwargs)
+
+                return disable
+            return torch.no_grad()(fn)
         if TORCH_1_9 and torch.is_inference_mode_enabled():
             return fn  # already in inference_mode, act as a pass-through
         else:
@@ -86,50 +109,66 @@ def smart_inference_mode():
     return decorate
 
 
-def autocast(enabled: bool, device: str = "cuda"):
+def autocast(enabled: bool | torch.dtype, device: str = "cuda"):
     """Get the appropriate autocast context manager based on PyTorch version and AMP setting.
 
     This function returns a context manager for automatic mixed precision (AMP) training that is compatible with both
     older and newer versions of PyTorch. It handles the differences in the autocast API between PyTorch versions.
 
     Args:
-        enabled (bool): Whether to enable automatic mixed precision.
-        device (str, optional): The device to use for autocast.
+        enabled (bool | torch.dtype): Whether to enable AMP, or the autocast dtype to enable.
+        device (str, optional): Device type to use for autocast, e.g. "cuda" or "npu".
 
     Returns:
         (torch.amp.autocast): The appropriate autocast context manager.
 
+    Raises:
+        RuntimeError: If bfloat16 is requested without torch>=1.13 and a CUDA device with native bfloat16 support.
+
     Examples:
+        >>> from ultralytics.utils.torch_utils import autocast
         >>> with autocast(enabled=True):
         ...     # Your mixed precision operations here
         ...     pass
 
     Notes:
-        - For PyTorch versions 1.13 and newer, it uses `torch.amp.autocast`.
-        - For older versions, it uses `torch.cuda.amp.autocast`.
+        Uses `torch.amp.autocast` on torch>=1.13 and the backend-specific AMP context on older releases.
     """
+    dtype = enabled if isinstance(enabled, torch.dtype) else None
+    enabled = bool(enabled)
+    if dtype is torch.bfloat16:
+        bf16_supported = device == "cuda" and TORCH_1_13
+        if bf16_supported:
+            bf16_supported = (
+                torch.cuda.is_bf16_supported(including_emulation=False)
+                if TORCH_2_4
+                else torch.cuda.is_bf16_supported()
+                and (bool(torch.version.hip) or torch.cuda.get_device_capability()[0] >= 8)
+            )
+        if not bf16_supported:
+            raise RuntimeError("bfloat16 autocast requires CUDA with native bfloat16 support and torch>=1.13")
+    kwargs = {"dtype": dtype} if dtype is not None else {}
+    if device == "npu":
+        import torch_npu
+
+        return torch_npu.npu.amp.autocast(enabled=enabled, **kwargs)
     if TORCH_1_13:
-        return torch.amp.autocast(device, enabled=enabled)
+        if device == "mps" and not TORCH_2_5:  # MPS autocast added in torch 2.5.0, errors on older versions
+            device, enabled = "cpu", False
+        return torch.amp.autocast(device, enabled=enabled, **kwargs)
     else:
-        return torch.cuda.amp.autocast(enabled)
+        return torch.cuda.amp.autocast(enabled and device == "cuda")
 
 
 @functools.lru_cache
 def get_cpu_info():
-    """Return a string with system CPU information, i.e. 'Apple M2'."""
-    from ultralytics.utils import PERSISTENT_CACHE  # avoid circular import error
-
-    if "cpu_info" not in PERSISTENT_CACHE:
-        try:
-            PERSISTENT_CACHE["cpu_info"] = CPUInfo.name()
-        except Exception:
-            pass
-    return PERSISTENT_CACHE.get("cpu_info", "unknown")
+    """Return a string with system CPU information, e.g. 'Apple M2'."""
+    return CPUInfo.name()
 
 
 @functools.lru_cache
 def get_gpu_info(index):
-    """Return a string with system GPU information, i.e. 'Tesla T4, 15102MiB'."""
+    """Return a string with system GPU information, e.g. 'Tesla T4, 15102MiB'."""
     properties = torch.cuda.get_device_properties(index)
     return f"{properties.name}, {properties.total_memory / (1 << 20):.0f}MiB"
 
@@ -159,13 +198,23 @@ def parse_device(device: str | int | list | tuple | torch.device = "") -> str:
         persisted under one environment (e.g. resumed checkpoint args) address the same physical GPUs only in that
         environment.
     """
-    if isinstance(device, torch.device) and device.type == "cuda" and device.index is None:
-        return ""  # indexless torch.device('cuda') means the current CUDA device, i.e. the '' default request
+    if isinstance(device, torch.device):
+        if device.type == "cuda" and device.index is None:
+            return ""  # indexless torch.device('cuda') means the current CUDA device, i.e. the '' default request
+        if device.type == "cpu":
+            return "cpu"  # an indexed torch.device('cpu', 0) is the same cpu
+        if device.type in {"npu", "xpu"}:
+            return device.type if device.index is None else f"{device.type}:{device.index}"
     device = str(device).lower()
     for remove in "cuda:", "none", "(", ")", "[", "]", "'", " ":
         device = device.replace(remove, "")  # to string, 'cuda:0' -> '0' and '(0, 1)' -> '0,1'
     if device == "cuda":
         device = "0"
+    for backend in ("npu", "xpu"):
+        if device.startswith(backend):
+            indices = device[len(backend) :].lstrip(":").replace(f"{backend}:", "")
+            indices = ",".join(str(int(x)) if x.isdigit() else x for x in indices.split(",") if x)
+            return f"{backend}:{indices}" if indices else backend
     device = ",".join(str(int(x)) if x.isdigit() else x for x in device.split(",") if x)  # "0,,01" -> "0,1"
     # Visible physical ids normalized like requested ids and truncated to the torch device count, mirroring CUDA's
     # atoi-style parsing and its stop at the first invalid CVD entry
@@ -195,19 +244,23 @@ def parse_device(device: str | int | list | tuple | torch.device = "") -> str:
 def select_device(device="", newline=False, verbose=True):
     """Select the appropriate PyTorch device based on the provided arguments.
 
-    The function takes a string specifying the device or a torch.device object and returns a torch.device object
+    The function takes a device request (see `parse_device`) or a torch.device object and returns a torch.device object
     representing the selected device. The function also validates the number of available devices and raises an
     exception if the requested device(s) are not available.
 
     Args:
-        device (str | torch.device, optional): Device string or torch.device object. Options include 'cpu', 'cuda', '0',
-            '0,1,2,3', 'mps', 'npu', 'npu:0', or '-1' for auto-select. Defaults to auto-selecting the first available
-            GPU, or CPU if no GPU is available.
+        device (str | int | list | tuple | torch.device, optional): Device request or torch.device object. Options
+            include 'cpu', 'cuda', '0', '0,1,2,3', 'mps', 'npu:0', 'npu:0,1', 'xpu:0', 'xpu:0,1', or '-1' to auto-select
+            an idle GPU. Defaults to the current CUDA device, or CPU if no GPU is available.
         newline (bool, optional): If True, adds a newline at the end of the log string.
         verbose (bool, optional): If True, logs the device information.
 
     Returns:
-        (torch.device): Selected device.
+        (torch.device | str): Selected device. For multi-GPU requests this is the first GPU. 'tpu', 'intel', and
+            'vulkan' device strings and other non-cpu/cuda/npu/xpu torch.device inputs are returned unchanged.
+
+    Raises:
+        ValueError: If the requested CUDA, NPU, or XPU device(s) are invalid or unavailable.
 
     Examples:
         >>> select_device("cuda:0")
@@ -224,41 +277,50 @@ def select_device(device="", newline=False, verbose=True):
         the current device untouched.
     """
     if isinstance(device, torch.device):
-        if device.type != "cuda":
-            return device  # non-CUDA torch.device inputs pass through; cuda ones canonicalize via parse_device below
+        if device.type not in {"cpu", "cuda", "npu", "xpu"}:
+            return device  # other torch.device inputs pass through; cpu and accelerator inputs canonicalize below
     elif str(device).startswith(("tpu", "intel", "vulkan")):
         return device
 
     s = f"Ultralytics {__version__} 🚀 {__brand__} Python-{PYTHON_VERSION} torch-{TORCH_VERSION} "
     device = parse_device(device)
 
-    # Huawei Ascend NPU
-    if device.startswith("npu"):
-        try:
-            import torch_npu  # noqa
-        except ImportError:
-            raise ValueError(f"Invalid NPU 'device={device}'. Install 'torch_npu' at https://github.com/Ascend/pytorch")
+    if device.startswith(("npu", "xpu")):
+        device_type = device.split(":", 1)[0]
+        if device_type == "npu":
+            try:
+                import torch_npu  # noqa
+            except ImportError:
+                raise ValueError(
+                    f"Invalid NPU 'device={device}'. Install 'torch_npu' at https://github.com/Ascend/pytorch"
+                )
+        if not hasattr(torch, device_type):
+            raise ValueError(f"Invalid {device_type.upper()} 'device={device}' requested. Backend is not available.")
+        backend = get_torch_device_backend(device_type)
+        if not backend.is_available():
+            raise ValueError(f"Invalid {device_type.upper()} 'device={device}' requested. Backend is not available.")
 
-        if not hasattr(torch, "npu") or not torch.npu.is_available():
-            raise ValueError(f"Invalid NPU 'device={device}' requested. Ascend NPU is not available.")
+        requested = ["0"] if device == device_type else device[4:].split(",")
+        indices = [int(x) for x in requested if x.isdigit()]
+        if not indices or len(indices) != len(requested) or len(indices) != len(set(indices)):
+            raise ValueError(
+                f"Invalid {device_type.upper()} 'device={device}' format. "
+                f"Use '{device_type}', '{device_type}:0', or '{device_type}:0,1'."
+            )
+        n = backend.device_count()
+        if any(idx >= n for idx in indices):
+            raise ValueError(
+                f"Invalid {device_type.upper()} 'device={device}' requested. Only {n} device(s) available."
+            )
 
-        # Parse 'npu' or 'npu:N' (multi-NPU not yet supported)
-        suffix = device[3:]
-        if suffix == "":
-            idx = 0
-        elif suffix.startswith(":") and suffix[1:].isdigit():
-            idx = int(suffix[1:])
-        else:
-            raise ValueError(f"Invalid NPU 'device={device}' format. Use 'npu' or 'npu:0'.")
-
-        n = torch.npu.device_count()
-        if idx >= n:
-            raise ValueError(f"Invalid NPU 'device={device}' requested. Only {n} NPU(s) available.")
-
-        torch.npu.set_device(idx)
+        if len(indices) == 1:
+            backend.set_device(indices[0])  # multi-device DDP ranks each pin their device in trainer._setup_ddp()
         if verbose:
-            LOGGER.info(f"{s}NPU:{idx} ({torch.npu.get_device_name(idx)})\n")
-        return torch.device(f"npu:{idx}")
+            space = " " * len(s)
+            for i, idx in enumerate(indices):
+                s += f"{'' if i == 0 else space}{device_type.upper()}:{idx} ({backend.get_device_name(idx)})\n"
+            LOGGER.info(s if newline else s.rstrip())
+        return torch.device(device_type, indices[0])
 
     cpu = device == "cpu"
     mps = device in {"mps", "mps:0"}  # Apple Metal Performance Shaders (MPS)
@@ -300,16 +362,20 @@ def select_device(device="", newline=False, verbose=True):
 
     if arg in {"cpu", "mps"}:
         torch.set_num_threads(NUM_THREADS)  # reset OMP_NUM_THREADS for cpu training
+    if arg == "cpu" and MACOS and ARM64 and TORCH_2_3:
+        torch.backends.nnpack.set_flags(False)  # NNPACK conv2d at batch>=16 is 6x slower than im2col on Apple silicon
     if verbose:
         LOGGER.info(s if newline else s.rstrip())
     return torch.device(arg)
 
 
-def time_sync():
-    """Return PyTorch-accurate time."""
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-    return time.time()
+def time_sync(device: torch.device | None = None):
+    """Return PyTorch-accurate time, synchronizing the accelerator first unless the device is CPU or MPS."""
+    if device is None or device.type not in {"cpu", "mps"}:
+        accelerator = get_torch_device_backend(device or "cuda")
+        if accelerator.is_available() and hasattr(accelerator, "synchronize"):
+            accelerator.synchronize()
+    return time.perf_counter()
 
 
 def fuse_conv_and_bn(conv, bn):
@@ -327,24 +393,12 @@ def fuse_conv_and_bn(conv, bn):
         >>> bn = nn.BatchNorm2d(16)
         >>> fused_conv = fuse_conv_and_bn(conv, bn)
     """
-    # Compute fused weights: Conv2d weight is [out_channels, in_channels // groups, kH, kW], scale along axis 0
-    bn_scale = bn.weight.div(torch.sqrt(bn.eps + bn.running_var))
-    conv.weight.data = conv.weight * bn_scale.view(-1, 1, 1, 1)
-
-    # Compute fused bias
-    b_conv = (
-        torch.zeros(conv.out_channels, device=conv.weight.device, dtype=conv.weight.dtype)
-        if conv.bias is None
-        else conv.bias
+    conv.weight, conv.bias = fuse_conv_bn_weights(
+        conv.weight, conv.bias, bn.running_mean, bn.running_var, bn.eps, bn.weight, bn.bias
     )
-    b_bn = bn.bias - bn.weight.mul(bn.running_mean).div(torch.sqrt(bn.running_var + bn.eps))
-    fused_bias = bn_scale * b_conv + b_bn
-
-    if conv.bias is None:
-        conv.register_parameter("bias", nn.Parameter(fused_bias))
-    else:
-        conv.bias.data = fused_bias
-
+    q = getattr(conv, "weight_quantizer", None)
+    if q is not None:  # QAT: the per-channel weight range scales with the folded BN, so the INT8 codes do not move
+        q.amax = q.amax * (bn.weight / torch.sqrt(bn.running_var + bn.eps)).abs().view_as(q.amax)
     return conv.requires_grad_(False)
 
 
@@ -365,27 +419,126 @@ def fuse_deconv_and_bn(deconv, bn):
     """
     if isinstance(bn, nn.Identity):  # ConvTranspose(bn=False) leaves bn as nn.Identity, nothing to fuse
         return deconv.requires_grad_(False)
-    # Compute fused weights: ConvTranspose2d weight is [in_channels, out_channels // groups, kH, kW], so the
-    # per-output-channel BN scale applies along axis 1 (group-mapped from axis 0), not axis 0 as for Conv2d.
-    bn_scale = bn.weight.div(torch.sqrt(bn.eps + bn.running_var))
-    w_scale = bn_scale.view(deconv.groups, -1).repeat_interleave(deconv.in_channels // deconv.groups, 0)
-    deconv.weight.data = deconv.weight * w_scale[:, :, None, None]
-
-    # Compute fused bias
-    b_conv = (
-        torch.zeros(deconv.out_channels, device=deconv.weight.device, dtype=deconv.weight.dtype)
-        if deconv.bias is None
-        else deconv.bias
+    # ConvTranspose2d weight is [in_channels, out_channels // groups, kH, kW]; view it in the Conv2d layout
+    # [out_channels, in_channels // groups, kH, kW] so the per-output-channel BN scale folds along axis 0
+    g, (ci, co, *k) = deconv.groups, deconv.weight.shape
+    weight = deconv.weight.view(g, ci // g, co, *k).transpose(1, 2).reshape(g * co, ci // g, *k)
+    weight, deconv.bias = fuse_conv_bn_weights(
+        weight, deconv.bias, bn.running_mean, bn.running_var, bn.eps, bn.weight, bn.bias
     )
-    b_bn = bn.bias - bn.weight.mul(bn.running_mean).div(torch.sqrt(bn.running_var + bn.eps))
-    fused_bias = bn_scale * b_conv + b_bn
-
-    if deconv.bias is None:
-        deconv.register_parameter("bias", nn.Parameter(fused_bias))
-    else:
-        deconv.bias.data = fused_bias
-
+    deconv.weight = nn.Parameter(weight.view(g, co, ci // g, *k).transpose(1, 2).reshape(ci, co, *k))
     return deconv.requires_grad_(False)
+
+
+# ModelOpt's torch plugins import huggingface_hub unconditionally but declare it only under its heavy [hf] extra,
+# so a bare install cannot import modelopt.torch at all
+MODELOPT_REQUIREMENTS = ["nvidia-modelopt>=0.44", "huggingface_hub"]
+
+
+def prepare_qat(model: nn.Module, dataloader, preprocess, batches: int = 8) -> nn.Module:
+    """Insert INT8 fake-quantization into a model for quantization-aware training (QAT).
+
+    Swaps Conv and Linear layers for ModelOpt equivalents that fake-quantize their input and weight, so training learns
+    weights that survive INT8 export and `torch.onnx.export` emits those ranges as Q/DQ nodes. Activation and weight
+    ranges are calibrated once from `batches` batches and then held fixed (ModelOpt's INT8 config keeps `amax` as a
+    buffer, not a learnable parameter), so training adapts the weights to them.
+
+    Training keeps BatchNorm unfused; `fuse()` folds it at export and rescales the weight ranges along. The head's
+    output layers, the bare convolutions and linears outside its `Conv` blocks, are left in float to limit INT8 accuracy
+    loss.
+
+    Args:
+        model (nn.Module): Model to prepare, modified in place.
+        dataloader (Iterable): Loader yielding Ultralytics batches for the initial range calibration.
+        preprocess (Callable): Task trainer preprocessing applied to each calibration batch.
+        batches (int): Number of calibration batches.
+
+    Returns:
+        (nn.Module): The prepared model, carrying fake-quantization modules.
+    """
+    with torch_distributed_zero_first(LOCAL_RANK):
+        check_requirements(MODELOPT_REQUIREMENTS)
+        import modelopt.torch.quantization as mtq
+
+    def forward_loop(m):
+        """Calibrate through the task batch path."""
+        for batch, _ in zip(dataloader, range(batches)):
+            m(preprocess(batch))
+
+    LOGGER.info(f"Preparing INT8 quantization-aware training from {batches} calibration batches...")
+    training = model.training
+    model.eval()  # freeze BatchNorm statistics
+    with torch.no_grad():
+        model = mtq.quantize(model, mtq.INT8_DEFAULT_CFG, forward_loop)
+        # Keep the head's output layers, the bare convolutions and linears outside its Conv blocks, in float to limit
+        # INT8 accuracy loss. DFL's fixed conv is left in float too.
+        head = f"model.{len(model.model) - 1}."
+        mtq.disable_quantizer(model, lambda n: n.startswith(head) and (".conv." not in n or ".dfl." in n))
+    model.train(training)
+    return model
+
+
+def is_qat(model: nn.Module) -> bool:
+    """Return True if the model carries fake-quantization modules inserted by `prepare_qat`.
+
+    Matched by class name so that non-QAT models, i.e. every ordinary export, never import ModelOpt.
+    """
+    model = model.model if isinstance(getattr(model, "model", None), nn.Module) else model
+    return any(type(m).__name__ == "TensorQuantizer" for m in model.modules())
+
+
+def qat_state(model: nn.Module) -> dict[str, Any] | None:
+    """Return the state that reproduces a model's fake-quantization, or None if it carries none.
+
+    Ultralytics checkpoints are pickled modules, but ModelOpt builds its quantized layers as classes created at runtime,
+    which pickle cannot look up on load. The quantization therefore travels beside the module as data. The checkpoint
+    writers read it here and `restore_qat` reconstructs it at load and resume.
+
+    Args:
+        model (nn.Module): Model to read, left untouched.
+
+    Returns:
+        (dict | None): ModelOpt conversion state and the calibrated quantizer ranges, or None for a plain model.
+    """
+    model = getattr(model, "student_model", model)  # distillation checkpoints quantize only the student
+    if not is_qat(model):
+        return None
+    import modelopt.torch.opt as mto
+
+    return {
+        "modelopt": mto.modelopt_state(model),
+        "ranges": {k: v for k, v in model.state_dict().items() if "quantizer" in k},
+    }
+
+
+def strip_qat(model: nn.Module) -> None:
+    """Revert a model's fake-quantization in place, leaving the plain layers it wraps.
+
+    Checkpoint writers call this on the copy they are about to pickle, after `qat_state` has read the quantization out
+    of it, since the runtime-generated layer classes cannot be pickled.
+    """
+    model = getattr(model, "student_model", model)  # distillation checkpoints quantize only the student
+    if not is_qat(model):
+        return
+    from modelopt.torch.opt.conversion import ModeloptStateManager
+    from modelopt.torch.opt.dynamic import DynamicModule
+
+    for m in model.modules():
+        if isinstance(m, DynamicModule):
+            m.export()  # revert the runtime class to the plain layer it wraps
+            m.__dict__.pop("_parallel_state", None)  # runtime process groups do not belong in a checkpoint
+    ModeloptStateManager.remove_state(model)  # a reverted copy must not claim to be converted
+
+
+def restore_qat(model: nn.Module, state: dict[str, Any]) -> None:
+    """Re-apply the fake-quantization captured by `qat_state` to a model, in place."""
+    model = getattr(model, "student_model", model)  # distillation checkpoints quantize only the student
+    check_requirements(MODELOPT_REQUIREMENTS)
+    import modelopt.torch.opt as mto
+
+    mto.restore_from_modelopt_state(model, state["modelopt"])
+    model.to(next(model.parameters()).device)
+    model.load_state_dict(state["ranges"], strict=False)
 
 
 def model_info(model, detailed=False, verbose=True, imgsz=640):
@@ -395,10 +548,10 @@ def model_info(model, detailed=False, verbose=True, imgsz=640):
         model (nn.Module): Model to analyze.
         detailed (bool, optional): Whether to print detailed layer information.
         verbose (bool, optional): Whether to print model information.
-        imgsz (int | list, optional): Input image size.
+        imgsz (int | list | tuple, optional): Input image size, an int or an (h, w) pair.
 
     Returns:
-        (tuple): Tuple containing:
+        (tuple | None): Tuple containing the following, or None if `verbose` is False:
             - n_l (int): Number of layers.
             - n_p (int): Number of parameters.
             - n_g (int): Number of gradients.
@@ -465,12 +618,12 @@ def model_info_for_loggers(trainer):
     if trainer.args.profile:  # profile ONNX and TensorRT times
         from ultralytics.utils.benchmarks import ProfileModels
 
-        results = ProfileModels([trainer.last], device=trainer.device).run()[0]
+        results = ProfileModels([trainer.last], device=trainer.device, imgsz=trainer.args.imgsz).run()[0]
         results.pop("model/name")
     else:  # only return PyTorch times from most recent validation
         results = {
             "model/parameters": get_num_params(trainer.model),
-            "model/GFLOPs": round(get_flops(trainer.model), 3),
+            "model/GFLOPs": round(get_flops(trainer.model, trainer.args.imgsz), 3),
         }
     results["model/speed_PyTorch(ms)"] = round(trainer.validator.speed["inference"], 3)
     return results
@@ -479,12 +632,13 @@ def model_info_for_loggers(trainer):
 def get_flops(model, imgsz=640):
     """Calculate FLOPs (floating point operations) for a model in GFLOPs.
 
-    Attempts two calculation methods: first with a stride-based tensor for efficiency, then falls back to full image
-    size if needed (e.g., for RTDETR models). Returns 0.0 if thop library is unavailable or calculation fails.
+    Uses THOP's stride-aware image profiling, which extrapolates exactly from small stride-aligned proxy images, with
+    the proxies widened past the anchor count at which an RT-DETR decoder's query selection saturates. Returns 0.0 if
+    thop is unavailable or profiling fails.
 
     Args:
         model (nn.Module): The model to calculate FLOPs for.
-        imgsz (int | list, optional): Input image size.
+        imgsz (int | list | tuple, optional): Input image size, an int or an (h, w) pair.
 
     Returns:
         (float): The model's GFLOPs (billions of floating point operations).
@@ -498,20 +652,19 @@ def get_flops(model, imgsz=640):
         return 0.0  # if not installed return 0.0 GFLOPs
 
     try:
+        from ultralytics.nn.modules.head import RTDETRDecoder  # imported here: head.py imports this module
+
         model = unwrap_model(model)
         p = next(model.parameters())
-        if not isinstance(imgsz, list):
+        if not isinstance(imgsz, (list, tuple)):
             imgsz = [imgsz, imgsz]  # expand if int/float
-        try:
-            # Method 1: Use stride-based input tensor
-            stride = max(int(model.stride.max()), 32) if hasattr(model, "stride") else 32  # max stride
-            im = torch.empty((1, p.shape[1], stride, stride), device=p.device, dtype=p.dtype)  # input image in BCHW
-            flops = thop.profile(model, inputs=[im], verbose=False)[0] / 1e9 * 2  # stride GFLOPs
-            return flops * imgsz[0] / stride * imgsz[1] / stride  # imgsz GFLOPs
-        except Exception:
-            # Method 2: Use actual image size (required for RTDETR models)
-            im = torch.empty((1, p.shape[1], *imgsz), device=p.device, dtype=p.dtype)  # input image in BCHW format
-            return thop.profile(model, inputs=[im], verbose=False)[0] / 1e9 * 2  # imgsz GFLOPs
+        stride = max(int(model.stride.max()), 32) if hasattr(model, "stride") else 32
+        # an RT-DETR decoder selects num_queries anchors, and a stride cell holds (4**nl - 1) / 3 anchors over nl levels
+        min_cells = max(
+            (-(-m.num_queries * 3 // (4**m.nl - 1)) for m in model.modules() if isinstance(m, RTDETRDecoder)), default=1
+        )
+        im = torch.empty((1, p.shape[1], *imgsz), device=p.device, dtype=p.dtype)  # input image in BCHW format
+        return thop.profile(model, inputs=[im], stride=stride, min_cells=min_cells, verbose=False)[0] / 1e9 * 2
     except Exception:
         return 0.0
 
@@ -525,17 +678,15 @@ def initialize_weights(model):
         elif t is nn.BatchNorm2d:
             m.eps = 1e-3
             m.momentum = 0.03
-        elif t in {nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU}:
-            m.inplace = True
 
 
 def scale_img(img, ratio=1.0, same_shape=False, gs=32):
     """Scale and pad an image tensor, optionally maintaining aspect ratio and padding to gs multiple.
 
     Args:
-        img (torch.Tensor): Input image tensor.
+        img (torch.Tensor): Input image tensor with shape (B, C, H, W).
         ratio (float, optional): Scaling ratio.
-        same_shape (bool, optional): Whether to maintain the same shape.
+        same_shape (bool, optional): Whether to pad or crop back to the original shape instead of a gs multiple.
         gs (int, optional): Grid size for padding.
 
     Returns:
@@ -553,6 +704,8 @@ def scale_img(img, ratio=1.0, same_shape=False, gs=32):
 
 def copy_attr(a, b, include=(), exclude=()):
     """Copy attributes from object 'b' to object 'a', with options to include/exclude certain attributes.
+
+    Private attributes (names starting with '_') are never copied.
 
     Args:
         a (Any): Destination object to copy attributes to.
@@ -635,14 +788,14 @@ def init_seeds(seed=0, deterministic=False):
     """
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # for Multi-GPU, exception safe
+    torch.manual_seed(seed)  # also seeds every CUDA, MPS and XPU device
     # torch.backends.cudnn.benchmark = True  # AutoBatch problem https://github.com/ultralytics/yolov5/issues/9287
     if deterministic:
         if TORCH_2_0:
             torch.use_deterministic_algorithms(True, warn_only=True)  # warn if deterministic is not possible
             torch.backends.cudnn.deterministic = True
+            if TORCH_2_2:  # skip deterministic mode's NaN fill of every new tensor, one fill kernel per allocation
+                torch.utils.deterministic.fill_uninitialized_memory = False
             os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
             os.environ["PYTHONHASHSEED"] = str(seed)
         else:
@@ -655,6 +808,8 @@ def unset_deterministic():
     """Unset all the configurations applied for deterministic training."""
     torch.use_deterministic_algorithms(False)
     torch.backends.cudnn.deterministic = False
+    if TORCH_2_2:
+        torch.utils.deterministic.fill_uninitialized_memory = True
     os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
     os.environ.pop("PYTHONHASHSEED", None)
 
@@ -696,6 +851,7 @@ class ModelEMA:
         for p in self.ema.parameters():
             p.requires_grad_(False)
         self.enabled = True
+        self._pairs = None  # (ema tensors, model tensors) with floating dtype, built on the first update
 
     def update(self, model):
         """Update EMA parameters.
@@ -707,28 +863,33 @@ class ModelEMA:
             self.updates += 1
             d = self.decay(self.updates)
 
-            msd = unwrap_model(model).state_dict()  # model state_dict
-            ema_v, model_v = [], []
-            for k, v in self.ema.state_dict().items():
-                if v.dtype.is_floating_point:  # true for FP16 and FP32
-                    ema_v.append(v)
-                    model_v.append(msd[k])
-            if ema_v and TORCH_2_0 and (TORCH_2_4 or ema_v[0].device.type != "mps"):  # one kernel launch per op
+            if self._pairs is None:  # the tensors are updated in place, so the lists are built once
+                msd = unwrap_model(model).state_dict()  # model state_dict
+                ema_v, model_v = [], []
+                for k, v in self.ema.state_dict().items():
+                    if v.dtype.is_floating_point:  # true for FP16 and FP32
+                        ema_v.append(v)
+                        model_v.append(msd[k])
+                self._pairs = ema_v, model_v
+            ema_v, model_v = self._pairs
+            if (
+                ema_v and TORCH_2_0 and ema_v[0].device.type != "npu" and (TORCH_2_4 or ema_v[0].device.type != "mps")
+            ):  # one kernel launch per op
                 torch._foreach_lerp_(ema_v, model_v, 1 - d)
-            else:  # _foreach_lerp_ needs torch>=2.0 and, on MPS, torch>=2.4
+            else:  # _foreach_lerp_ needs torch>=2.0, MPS torch>=2.4, and is unavailable on NPU
                 for v, m in zip(ema_v, model_v):
                     v.mul_(d).add_(m, alpha=1 - d)
 
-    def update_attr(self, model, include=(), exclude=("process_group", "reducer")):
+    def update_attr(self, model, include=(), exclude=()):
         """Copy attributes from model to EMA, with options to include/exclude certain attributes.
 
         Args:
-            model (nn.Module): Model to copy attributes from.
+            model (nn.Module): Model to copy attributes from; compile and parallel wrappers are unwrapped first.
             include (tuple, optional): Attributes to include.
             exclude (tuple, optional): Attributes to exclude.
         """
         if self.enabled:
-            copy_attr(self.ema, model, include, exclude)
+            copy_attr(self.ema, unwrap_model(model), include, exclude)
 
 
 def strip_optimizer(f: str | Path = "best.pt", s: str = "", updates: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -741,7 +902,7 @@ def strip_optimizer(f: str | Path = "best.pt", s: str = "", updates: dict[str, A
         updates (dict, optional): A dictionary of updates to overlay onto the checkpoint before saving.
 
     Returns:
-        (dict): The combined checkpoint dictionary.
+        (dict): The combined checkpoint dictionary, or an empty dict if 'f' is not a valid Ultralytics checkpoint.
 
     Examples:
         >>> from pathlib import Path
@@ -785,7 +946,7 @@ def strip_optimizer(f: str | Path = "best.pt", s: str = "", updates: dict[str, A
 
     # Update other keys
     args = {**DEFAULT_CFG_DICT, **x.get("train_args", {})}  # combine args
-    for k in "optimizer", "best_fitness", "ema", "updates", "scaler":  # keys
+    for k in "optimizer", "best_fitness", "stopper", "ema", "updates", "scaler":  # keys
         x[k] = None
     x["epoch"] = -1
     x["train_args"] = {k: v for k, v in args.items() if k in DEFAULT_CFG_KEYS}  # strip non-default keys
@@ -802,6 +963,9 @@ def strip_optimizer(f: str | Path = "best.pt", s: str = "", updates: dict[str, A
 def convert_optimizer_state_dict_to_fp16(state_dict):
     """Convert the state_dict of a given optimizer to FP16, focusing on the 'state' key for tensor conversions.
 
+    FP32 tensors are converted in place, except 'step', 'exp_avg', 'exp_avg_sq', and 'square_avg', which are kept in
+    FP32.
+
     Args:
         state_dict (dict): Optimizer state dictionary.
 
@@ -810,7 +974,11 @@ def convert_optimizer_state_dict_to_fp16(state_dict):
     """
     for state in state_dict["state"].values():
         for k, v in state.items():
-            if k not in {"step", "exp_avg_sq"} and isinstance(v, torch.Tensor) and v.dtype is torch.float32:
+            if (
+                k not in {"step", "exp_avg", "exp_avg_sq", "square_avg"}
+                and isinstance(v, torch.Tensor)
+                and v.dtype is torch.float32
+            ):
                 state[k] = v.half()
 
     return state_dict
@@ -818,27 +986,31 @@ def convert_optimizer_state_dict_to_fp16(state_dict):
 
 @contextmanager
 def cuda_memory_usage(device=None):
-    """Monitor and manage CUDA memory usage.
+    """Monitor and manage accelerator memory usage.
 
-    This function checks if CUDA is available and, if so, empties the CUDA cache to free up unused memory. It then
-    yields a dictionary containing memory usage information, which can be updated by the caller. Finally, it updates the
-    dictionary with the amount of memory reserved by CUDA on the specified device.
+    This function empties the active accelerator cache, yields a dictionary containing memory usage information, and
+    then records the reserved memory on the specified device.
 
     Args:
-        device (torch.device, optional): The CUDA device to query memory usage for.
+        device (torch.device, optional): The accelerator device to query memory usage for. CPU and MPS devices are not
+            measured.
 
     Yields:
-        (dict): A dictionary with a key 'memory' initialized to 0, which will be updated with the reserved memory.
+        (dict): A dictionary with a key 'memory' initialized to 0, updated with reserved memory in bytes.
     """
-    cuda_info = {"memory": 0}
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    info = {"memory": 0}
+    if device is not None and device.type in {"cpu", "mps"}:
+        yield info
+        return
+    accelerator = get_torch_device_backend(device or "cuda")
+    if accelerator.is_available() and hasattr(accelerator, "memory_reserved"):
+        accelerator.empty_cache()
         try:
-            yield cuda_info
+            yield info
         finally:
-            cuda_info["memory"] = torch.cuda.memory_reserved(device)
+            info["memory"] = accelerator.memory_reserved(device)
     else:
-        yield cuda_info
+        yield info
 
 
 def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
@@ -846,13 +1018,15 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
 
     Args:
         input (torch.Tensor | list): Input tensor(s) to profile.
-        ops (nn.Module | list): Model or list of operations to profile.
+        ops (nn.Module | Callable | list): Model, callable, or list of operations to profile.
         n (int, optional): Number of iterations to average.
         device (str | torch.device, optional): Device to profile on.
-        max_num_obj (int, optional): Maximum number of objects for simulation.
+        max_num_obj (int, optional): Maximum number of objects per image used to simulate training-loss memory for
+            AutoBatch. Requires `ops` to have `stride` and `names` attributes. 0 disables the simulation.
 
     Returns:
-        (list): Profile results for each operation.
+        (list): Profile results for each input and operation pair, each either a list of [parameters, GFLOPs, memory
+            (GB), forward time (ms), backward time (ms), input shape, output shape] or None if profiling failed.
 
     Examples:
         >>> from ultralytics.utils.torch_utils import profile_ops
@@ -867,14 +1041,15 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
         thop = None  # conda support without 'ultralytics-thop' installed
 
     results = []
-    if not isinstance(device, torch.device):
-        device = select_device(device)
+    device = select_device(device, verbose=False)
     LOGGER.info(
         f"{'Params':>12s}{'GFLOPs':>12s}{'GPU_mem (GB)':>14s}{'forward (ms)':>14s}{'backward (ms)':>14s}"
         f"{'input':>24s}{'output':>24s}"
     )
     gc.collect()  # attempt to free unused memory
-    torch.cuda.empty_cache()
+    accelerator = get_torch_device_backend(device) if device.type not in {"cpu", "mps"} else None
+    if accelerator is not None:
+        accelerator.empty_cache()
     for x in input if isinstance(input, list) else [input]:
         x = x.to(device)
         x.requires_grad = True
@@ -891,12 +1066,12 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
                 mem = 0
                 for _ in range(n):
                     with cuda_memory_usage(device) as cuda_info:
-                        t[0] = time_sync()
+                        t[0] = time_sync(device)
                         y = m(x)
-                        t[1] = time_sync()
+                        t[1] = time_sync(device)
                         try:
-                            (sum(yi.sum() for yi in y) if isinstance(y, list) else y).sum().backward()
-                            t[2] = time_sync()
+                            sum(yi.sum() for yi in tree_flatten(y)[0] if isinstance(yi, torch.Tensor)).backward()
+                            t[2] = time_sync(device)
                         except Exception:  # no backward method
                             # print(e)  # for debug
                             t[2] = float("nan")
@@ -906,10 +1081,8 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
                     if max_num_obj:  # simulate training with predictions per image grid (for AutoBatch)
                         with cuda_memory_usage(device) as cuda_info:
                             anchors = int(sum((x.shape[-1] / s) * (x.shape[-2] / s) for s in m.stride.tolist()))
-                            # Envelope of the detect-loss memory peaks: TaskAlignedAssigner.get_box_metrics holds ~6
-                            # simultaneous (bs, max_num_obj, anchors) fp32 buffers (overlaps, bbox_scores, gathered
-                            # pd_scores, two pow temps + align_metric); the cls path holds ~6 (bs, anchors, nc)
-                            # fp32-equivalents (pred/target + two op temps of the unreduced BCE in v8DetectionLoss:
+                            # Conservative detect-loss envelope: ~6 fp32-equivalents each for TaskAlignedAssigner
+                            # metric/top-k state and the cls path (pred/target + two op temps of unreduced BCE:
                             # ~4 in pure fp32, ~6 under AMP where autocast upcasts both BCE inputs to fp32 copies)
                             sim = (
                                 torch.randn(x.shape[0], 6 * max_num_obj, anchors, device=device, dtype=torch.float32),
@@ -926,7 +1099,8 @@ def profile_ops(input, ops, n=10, device=None, max_num_obj=0):
                 results.append(None)
             finally:
                 gc.collect()  # attempt to free unused memory
-                torch.cuda.empty_cache()
+                if accelerator is not None:
+                    accelerator.empty_cache()
     return results
 
 
@@ -944,7 +1118,8 @@ class EarlyStopping:
         """Initialize early stopping object.
 
         Args:
-            patience (int, optional): Number of epochs to wait after fitness stops improving before stopping.
+            patience (int, optional): Number of epochs to wait after fitness stops improving before stopping. 0 or None
+                disables early stopping. The trainer always passes the cfg `patience` value (100 by default).
         """
         self.best_fitness = 0.0  # i.e. mAP
         self.best_epoch = 0
@@ -1007,34 +1182,48 @@ def attempt_compile(
     Returns:
         (torch.nn.Module): Compiled model if compilation succeeds, otherwise the original unmodified model.
 
+    Raises:
+        ValueError: If the model carries QAT fake-quantization modules, which do not support torch.compile.
+
     Examples:
+        >>> import torch
+        >>> from ultralytics.utils.torch_utils import attempt_compile
         >>> device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        >>> model = torch.nn.Conv2d(3, 16, 3).to(device)
         >>> # Try to compile and warm up a model with a 640x640 input
         >>> model = attempt_compile(model, device=device, imgsz=640, use_autocast=True, warmup=True)
 
     Notes:
-        - If the current PyTorch build does not provide torch.compile, the function returns the input model immediately.
-        - Compilation is lazy and runs at the first forward pass, so the inductor CPU prerequisite of a host C++
-          compiler is verified up front and the original model is returned if none is available.
+        - If the current PyTorch build does not provide torch.compile or `mode` is False, the function returns the input
+          model immediately.
+        - Compilation is lazy and runs at the first forward pass, so the inductor prerequisites (a host C++ compiler on
+          CPU, a working Triton on CUDA) are verified up front and the original model is returned if one is missing.
         - Warmup runs under torch.inference_mode and may use torch.autocast for CUDA/MPS to align compute precision.
         - CUDA devices are synchronized after warmup to account for asynchronous kernel execution.
     """
     if not hasattr(torch, "compile") or not mode:
         return model
+    if is_qat(model):
+        raise ValueError("QAT models do not support torch.compile. Use compile=False.")
 
     if mode is True:
         mode = "default"
     prefix = colorstr("compile:")
-    if device.type == "cpu":
-        try:  # compilation is lazy, so verify the inductor CPU requirement of a host C++ compiler before compiling
+    try:  # compilation is lazy, so verify the inductor prerequisites before compiling
+        if device.type == "cpu":
             from torch._inductor.cpp_builder import get_cpp_compiler
 
-            get_cpp_compiler()
-        except ImportError:
-            pass  # older torch without cpp_builder, defer to torch.compile
-        except Exception as e:
-            LOGGER.warning(f"{prefix} no C++ compiler found for the inductor backend, continuing uncompiled: {e}")
-            return model
+            get_cpp_compiler()  # host C++ compiler
+        elif device.type == "cuda":
+            from torch.utils._triton import has_triton
+
+            if not has_triton():  # e.g. Windows wheels or GPUs below compute capability 7.0
+                raise RuntimeError("no working Triton found")
+    except ImportError:
+        pass  # older torch without these probes, defer to torch.compile
+    except Exception as e:
+        LOGGER.warning(f"{prefix} inductor backend unavailable, continuing uncompiled: {e}")
+        return model
     LOGGER.info(f"{prefix} starting torch.compile with '{mode}' mode...")
     t0 = time.perf_counter()
     try:

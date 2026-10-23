@@ -30,10 +30,8 @@ class GitRepo:
         Initialize from the current working directory and read metadata
         >>> from pathlib import Path
         >>> repo = GitRepo(Path.cwd())
-        >>> repo.is_repo
-        True
-        >>> repo.branch, repo.commit[:7], repo.origin
-        ('main', '1a2b3c4', 'https://example.com/owner/repo.git')
+        >>> is_repo = repo.is_repo
+        >>> branch, commit, origin = repo.branch, repo.commit, repo.origin
 
     Notes:
         - Resolves metadata by reading files: HEAD, packed-refs, config, and objects; no subprocess calls are used.
@@ -45,6 +43,7 @@ class GitRepo:
 
         Args:
             path (Path, optional): File or directory path used as the starting point to locate the repository root.
+                Defaults to the location of this module.
         """
         self.root = self._find_root(path or Path(__file__).resolve())
         self.gitdir = self._gitdir(self.root) if self.root else None

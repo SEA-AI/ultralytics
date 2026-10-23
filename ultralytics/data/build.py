@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import random
@@ -35,10 +36,10 @@ from ultralytics.data.loaders import (
     SourceTypes,
     autocast_list,
 )
-from ultralytics.data.utils import IMG_FORMATS, VID_FORMATS
+from ultralytics.data.utils import IMG_FORMATS, VID_FORMATS, add_polygon_background, get_split_fraction
 from ultralytics.utils import RANK, colorstr
 from ultralytics.utils.checks import check_file
-from ultralytics.utils.torch_utils import TORCH_2_0
+from ultralytics.utils.torch_utils import TORCH_1_13, TORCH_2_0, TORCH_2_7, get_torch_device_backend
 
 
 class InfiniteDataLoader(dataloader.DataLoader):
@@ -62,8 +63,8 @@ class InfiniteDataLoader(dataloader.DataLoader):
         Create an infinite DataLoader for training
         >>> dataset = YOLODataset(...)
         >>> dataloader = InfiniteDataLoader(dataset, batch_size=16, shuffle=True)
-        >>> for batch in dataloader:  # Infinite iteration
-        >>>     train_step(batch)
+        >>> for batch in dataloader:  # one epoch of batches, workers persist across epochs
+        ...     train_step(batch)
     """
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -72,14 +73,16 @@ class InfiniteDataLoader(dataloader.DataLoader):
             kwargs.pop("prefetch_factor", None)  # not supported by earlier versions
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
-        self.iterator = super().__iter__()
+        self.iterator = None  # fork workers on first iteration, not while another loader's pin-memory thread starts up
 
     def __len__(self) -> int:
         """Return the length of the batch sampler's sampler."""
         return len(self.batch_sampler.sampler)
 
     def __iter__(self) -> Iterator:
-        """Create an iterator that yields indefinitely from the underlying iterator."""
+        """Yield one epoch of batches from the persistent iterator."""
+        if self.iterator is None:
+            self.iterator = self._get_iterator()
         for _ in range(len(self)):
             yield next(self.iterator)
 
@@ -101,7 +104,7 @@ class InfiniteDataLoader(dataloader.DataLoader):
     def reset(self):
         """Reset the iterator to allow modifications to the dataset during training."""
         self.close()  # free old worker pipes before creating new iterator
-        self.iterator = self._get_iterator()
+        self.iterator = None
 
 
 class _RepeatSampler:
@@ -177,7 +180,7 @@ class ContiguousDistributedSampler(torch.utils.data.Sampler):
         self.epoch = 0
         self.shuffle = shuffle
         self.total_size = len(dataset)
-        # ensure all ranks have a sample if batch size >= total size; degenerates to round-robin sampler
+        # Use unit batches when one input batch would span the dataset.
         self.batch_size = 1 if batch_size >= self.total_size else batch_size
         self.num_batches = math.ceil(self.total_size / self.batch_size)
 
@@ -195,7 +198,7 @@ class ContiguousDistributedSampler(torch.utils.data.Sampler):
         end_batch = start_batch + batches_for_this_rank
 
         # Convert batch indices to sample indices
-        start_idx = start_batch * self.batch_size
+        start_idx = min(start_batch * self.batch_size, self.total_size)
         end_idx = min(end_batch * self.batch_size, self.total_size)
 
         return start_idx, end_idx
@@ -235,7 +238,7 @@ def seed_worker(worker_id: int) -> None:
 
 def build_yolo_dataset(
     cfg: IterableSimpleNamespace,
-    img_path: str,
+    img_path: str | list[str],
     batch: int,
     data: dict[str, Any],
     mode: str = "train",
@@ -244,32 +247,49 @@ def build_yolo_dataset(
     multi_modal: bool = False,
     fraction: float | None = None,
 ) -> Dataset:
-    """Build and return a YOLO dataset based on configuration parameters."""
+    """Build and return a YOLO dataset based on configuration parameters.
+
+    Args:
+        cfg (IterableSimpleNamespace): Configuration namespace with dataset and augmentation hyperparameters.
+        img_path (str | list[str]): Path to the images directory, image list file, or list of either.
+        batch (int): Batch size.
+        data (dict[str, Any]): Dataset configuration dictionary.
+        mode (str, optional): Dataset mode, 'train' enables augmentation; any other value is treated as evaluation.
+        rect (bool, optional): Whether to use rectangular batches (also enabled when cfg.rect is True).
+        stride (int, optional): Model stride used for rectangular batch shapes.
+        multi_modal (bool, optional): Whether to build a YOLOMultiModalDataset with text annotations.
+        fraction (float | None, optional): Fraction of the dataset to use. If None, it is derived from cfg.fraction.
+
+    Returns:
+        (Dataset): A DepthDataset, SemanticDataset, PolygonSemanticDataset, YOLOMultiModalDataset, or YOLODataset
+            depending on cfg.task, the dataset configuration, and multi_modal.
+    """
     pad = 0.0 if mode == "train" else 0.5
+    rect = cfg.rect or rect
     if cfg.task == "depth":
         dataset = DepthDataset
-        pad = 0.0  # depth val letterbox stretches, so pad is ignored
+        pad, rect = 0.0, rect and mode == "train"  # depth val letterbox stretches, so pad and rect_shape are ignored
     elif cfg.task == "semantic":
-        data_path = Path(data.get("path", ""))
-        if "masks_dir" in data or (data_path / "masks").exists():
-            dataset = SemanticDataset
-        else:
-            dataset = PolygonSemanticDataset
+        dataset = SemanticDataset if data.get("masks_dir") else PolygonSemanticDataset
+        if dataset is PolygonSemanticDataset:
+            add_polygon_background(data)  # polygon labels need a background class; idempotent if already added
         pad = 0.0  # no pad for semantic
     elif multi_modal:
         dataset = YOLOMultiModalDataset
     else:
         dataset = YOLODataset
 
-    if fraction is None:
-        fraction = cfg.fraction if mode == "train" else 1.0
+    if data.get("complete"):
+        fraction = 1.0  # already limited during dataset download
+    elif fraction is None:
+        fraction = get_split_fraction(cfg.fraction, "train" if mode == "train" else cfg.split)
     return dataset(
         img_path=img_path,
         imgsz=cfg.imgsz,
         batch_size=batch,
         augment=mode == "train",
         hyp=cfg,
-        rect=cfg.rect or rect,
+        rect=rect,
         cache=cfg.cache or None,
         single_cls=cfg.single_cls or (cfg.single_cls_val if mode == "val" else False),
         stride=stride,
@@ -292,7 +312,21 @@ def build_grounding(
     stride: int = 32,
     max_samples: int = 80,
 ) -> Dataset:
-    """Build and return a GroundingDataset based on configuration parameters."""
+    """Build and return a GroundingDataset based on configuration parameters.
+
+    Args:
+        cfg (IterableSimpleNamespace): Configuration namespace with dataset and augmentation hyperparameters.
+        img_path (str): Path to the images directory.
+        json_file (str): Path to the grounding annotation JSON file.
+        batch (int): Batch size.
+        mode (str, optional): Dataset mode, 'train' enables augmentation.
+        rect (bool, optional): Whether to use rectangular batches (also enabled when cfg.rect is True).
+        stride (int, optional): Model stride used for rectangular batch shapes.
+        max_samples (int, optional): Maximum number of text samples per image.
+
+    Returns:
+        (Dataset): The GroundingDataset instance.
+    """
     return GroundingDataset(
         img_path=img_path,
         json_file=json_file,
@@ -300,7 +334,7 @@ def build_grounding(
         imgsz=cfg.imgsz,
         batch_size=batch,
         augment=mode == "train",  # augmentation
-        hyp=cfg,  # TODO: probably add a get_hyps_from_cfg function
+        hyp=cfg,
         rect=cfg.rect or rect,  # rectangular batches
         cache=cfg.cache or None,
         single_cls=cfg.single_cls or False,
@@ -309,18 +343,18 @@ def build_grounding(
         prefix=colorstr(f"{mode}: "),
         task=cfg.task,
         classes=cfg.classes,
-        fraction=cfg.fraction if mode == "train" else 1.0,
     )
 
 
 def build_dataloader(
-    dataset,
+    dataset: Dataset,
     batch: int,
     workers: int,
     shuffle: bool = True,
     rank: int = -1,
     drop_last: bool = False,
     pin_memory: bool = True,
+    device: torch.device | str = "cuda",
 ) -> InfiniteDataLoader:
     """Create and return an InfiniteDataLoader for training or validation.
 
@@ -330,8 +364,10 @@ def build_dataloader(
         workers (int): Number of worker processes for data loading.
         shuffle (bool, optional): Whether to shuffle the dataset.
         rank (int, optional): Process rank in distributed training. -1 for single-GPU training.
-        drop_last (bool, optional): Whether to drop the last incomplete batch.
+        drop_last (bool, optional): Whether to drop the last incomplete batch of each rank's shard. A shard smaller than
+            one batch is kept.
         pin_memory (bool, optional): Whether to use pinned memory for dataloader.
+        device (torch.device | str, optional): Device used by the dataloader consumer.
 
     Returns:
         (InfiniteDataLoader): A dataloader that can be used for training or validation.
@@ -343,34 +379,41 @@ def build_dataloader(
     """
     dataset_len = len(dataset)
     batch = min(batch, dataset_len)
+    seed = torch.initial_seed() - RANK - 1
     sampler = (
         None
         if rank == -1
-        else distributed.DistributedSampler(dataset, shuffle=shuffle)
+        else distributed.DistributedSampler(dataset, shuffle=shuffle, seed=seed)
         if shuffle
         else ContiguousDistributedSampler(dataset)
     )
     samples = len(sampler) if sampler is not None else dataset_len
-    drop_last = drop_last and bool(batch) and dataset_len % batch != 0
+    drop_last = drop_last and samples > batch > 0 and samples % batch != 0
     batches = (samples // batch if drop_last else math.ceil(samples / batch)) if batch else 0
-    nd = torch.cuda.device_count()  # number of CUDA devices
+    device_type = getattr(device, "type", str(device).split(":")[0])
+    nd = get_torch_device_backend(device).device_count() if device_type not in {"cpu", "mps"} else 0
     # Do not create more worker processes than final loader batches. Single-batch loaders run in-process to avoid
     # persistent DataLoader worker pools that add overhead and can stall tiny datasets while holding CUDA context.
     nw = min(os.cpu_count() // max(nd, 1), workers, 0 if batches <= 1 else batches)  # number of workers
     generator = torch.Generator()
-    generator.manual_seed(6148914691236517205 + RANK)
+    generator.manual_seed((6148914691236517205 + RANK + seed) % (1 << 64))
+    pin_memory = nd > 0 and pin_memory
+    pin_memory_device = (
+        device_type if pin_memory and device_type in {"npu", "xpu"} and TORCH_1_13 and not TORCH_2_7 else None
+    )
     return InfiniteDataLoader(
         dataset=dataset,
         batch_size=batch,
         shuffle=shuffle and sampler is None,
         num_workers=nw,
         sampler=sampler,
-        prefetch_factor=4 if nw > 0 else None,  # increase over default 2
-        pin_memory=nd > 0 and pin_memory,
+        prefetch_factor=(4 if shuffle else 2) if nw > 0 else None,  # validation holds fewer batches between passes
+        pin_memory=pin_memory,
         collate_fn=getattr(dataset, "collate_fn", None),
         worker_init_fn=seed_worker,
         generator=generator,
         drop_last=drop_last,
+        **({"pin_memory_device": pin_memory_device} if pin_memory_device else {}),
     )
 
 
@@ -390,6 +433,9 @@ def check_source(
         in_memory (bool): Whether the source is an in-memory object.
         tensor (bool): Whether the source is a torch.Tensor.
 
+    Raises:
+        TypeError: If the source type is not supported.
+
     Examples:
         Check a file path source
         >>> source, webcam, screenshot, from_img, in_memory, tensor = check_source("image.jpg")
@@ -401,14 +447,20 @@ def check_source(
     if isinstance(source, (str, int, Path)):  # int for local usb camera
         source = str(source)
         source_lower = source.lower()
-        is_url = source_lower.startswith(("https://", "http://", "rtsp://", "rtmp://", "tcp://"))
-        is_file = (urlsplit(source_lower).path if is_url else source_lower).rpartition(".")[-1] in (
-            IMG_FORMATS | VID_FORMATS
-        )
-        webcam = source.isnumeric() or source.endswith(".streams") or (is_url and not is_file)
-        screenshot = source_lower == "screen"
-        if is_url and is_file:
+        is_stream = source_lower.startswith(("rtsp://", "rtmp://", "tcp://"))  # streams even with a video suffix
+        is_url = source_lower.startswith(("https://", "http://"))
+        is_file = is_url and urlsplit(source_lower).path.rpartition(".")[-1] in (IMG_FORMATS | VID_FORMATS)
+        webcam = source.isnumeric() or source_lower.endswith(".streams") or is_stream or (is_url and not is_file)
+        screenshot = source_lower == "screen" or (source_lower.startswith("screen ") and not Path(source).exists())
+        if is_file:
             source = check_file(source)  # download
+        elif is_url:  # a URL without a media suffix is one image if it returns an image/* response
+            import requests  # scoped as slow import
+
+            with contextlib.suppress(requests.RequestException), requests.get(source, stream=True, timeout=3) as r:
+                webcam = not r.headers.get("Content-Type", "").startswith("image/")
+            if not webcam:
+                source, from_img = autocast_list([source]), True
     elif isinstance(source, LOADERS):
         in_memory = True
     elif isinstance(source, (list, tuple)):

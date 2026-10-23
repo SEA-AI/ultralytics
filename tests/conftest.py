@@ -1,6 +1,8 @@
 # Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
+import os
 import shutil
+import sys
 from pathlib import Path
 
 import numpy.testing  # noqa: F401  # Pre-import before any test can corrupt numpy via in-place upgrade
@@ -76,6 +78,17 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.skip(reason=f"export format '{fmt}' belongs to env '{env_by_format[fmt]}'"))
 
 
+def pytest_runtest_logreport(report):
+    """Annotate test failures and xdist worker crashes on the GitHub Actions run summary."""
+    if not report.failed or os.environ.get("GITHUB_ACTIONS") != "true" or "PYTEST_XDIST_WORKER" in os.environ:
+        return
+    crash = getattr(report.longrepr, "reprcrash", None)
+    title = "Worker crashed" if report.when == "???" else f"Test failed ({report.when})"
+    message = f"{report.nodeid}\n{crash.message if crash else report.longrepr}"
+    message = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    print(f"::error file={report.location[0]},title={title}::{message}", file=sys.stderr, flush=True)
+
+
 def isolated_model_path(tmp_path, model):
     """Copy a model to a per-test path to prevent export file races under pytest-xdist."""
     model = Path(model)
@@ -132,7 +145,7 @@ def pytest_sessionfinish(session, exitstatus):
 
     # Remove files
     models = [path for x in ("*.onnx", "*.torchscript") for path in WEIGHTS_DIR.rglob(x)]
-    for file in ["decelera_portrait_min.mov", "bus.jpg", "yolo26n.onnx", "yolo26n.torchscript", *models]:
+    for file in ["bus.jpg", "yolo26n.onnx", "yolo26n.torchscript", *models]:
         Path(file).unlink(missing_ok=True)
 
     # Remove directories

@@ -17,10 +17,11 @@ from ultralytics.utils import LINUX, LOGGER, MACOS, RANK, WINDOWS
 class ConsoleLogger:
     """Console output capture with batched streaming to file, API, or custom callback.
 
-    Captures stdout/stderr output and streams it with intelligent deduplication and configurable batching.
+    Captures stdout/stderr and Ultralytics logger output and streams it with deduplication and configurable batching.
 
     Attributes:
         destination (str | Path | None): Target destination for streaming (URL, Path, or None for callback-only).
+        is_api (bool): Whether the destination is an HTTP(S) API endpoint.
         batch_size (int): Number of lines to batch before flushing (default: 1 for immediate).
         flush_interval (float): Seconds between automatic flushes (default: 5.0).
         on_flush (callable | None): Optional callback function called with batched content on flush.
@@ -75,13 +76,13 @@ class ConsoleLogger:
         self.buffer = []
         self.buffer_lock = threading.Lock()
         self.flush_thread = None
-        self.chunk_id = 0
+        self.chunk_id = int(time.time() * 1000)  # unique across processes, e.g. a resumed run
 
         # Deduplication state
         self.last_line = ""
         self.last_time = 0.0
-        self.last_progress_line = ""  # Track progress sequence key for deduplication
-        self.last_was_progress = False  # Track if last line was a progress bar
+        self.progress = {}  # live progress bar frames by bar id, held as state instead of buffered as log lines
+        self.progress_sent = {}
 
     def start_capture(self):
         """Start capturing console output and redirect stdout/stderr.
@@ -93,8 +94,8 @@ class ConsoleLogger:
             return
 
         self.active = True
-        sys.stdout = self._ConsoleCapture(self.original_stdout, self._queue_log)
-        sys.stderr = self._ConsoleCapture(self.original_stderr, self._queue_log)
+        self.stdout_capture = sys.stdout = self._ConsoleCapture(self.original_stdout, self._queue_log)
+        self.stderr_capture = sys.stderr = self._ConsoleCapture(self.original_stderr, self._queue_log)
 
         # Hook Ultralytics logger
         try:
@@ -103,8 +104,8 @@ class ConsoleLogger:
         except Exception:
             pass
 
-        # Start background flush thread for batched mode
-        if self.batch_size > 1:
+        # Background flush thread: carries live progress frames in every mode, batched lines when batching
+        if not (self.flush_thread and self.flush_thread.is_alive()):  # a worker still sleeping resumes on its own
             self.flush_thread = threading.Thread(target=self._flush_worker, daemon=True)
             self.flush_thread.start()
 
@@ -113,6 +114,7 @@ class ConsoleLogger:
         if not self.active:
             return
 
+        self.stdout_capture.callback = self.stderr_capture.callback = None
         self.active = False
         sys.stdout = self.original_stdout
         sys.stderr = self.original_stderr
@@ -125,11 +127,12 @@ class ConsoleLogger:
                 pass
             self._log_handler = None
 
-        # Final flush
+        # Final flush, without the frames of any bar that outlived the capture
+        self.progress.clear()
         self._flush_buffer()
 
-    def _queue_log(self, text):
-        """Queue console text with deduplication and timestamp processing."""
+    def _queue_log(self, text, bar_id):
+        """Queue console text with deduplication and timestamp processing, holding bar frames as state."""
         if not self.active:
             return
 
@@ -140,52 +143,20 @@ class ConsoleLogger:
             text = text.split("\r")[-1]
         text = text.replace("\x1b[K", "")
 
+        if bar_id is not None:  # a redraw is bar state, so only the frame a bar closed with becomes a log line
+            with self.buffer_lock:
+                if text:
+                    self.progress[str(bar_id)] = text.rstrip()
+                    return
+                text = self.progress.pop(str(bar_id), "")
+
         lines = text.split("\n")
         if lines and lines[-1] == "":
             lines.pop()
 
         for line in lines:
-            line = line.rstrip()
-
-            # Skip lines with only thin progress bars (partial progress)
-            if "─" in line:  # Has thin lines but no thick lines
-                continue
-
-            # Only show 100% completion lines for progress bars
-            if " ━━" in line:
-                is_complete = "100%" in line
-
-                # Skip ALL non-complete progress lines
-                if not is_complete:
-                    continue
-
-                # Extract sequence key to deduplicate multiple 100% lines for same sequence
-                parts = line.split()
-                seq_key = ""
-                if parts:
-                    # Check for epoch pattern (X/Y at start)
-                    if "/" in parts[0] and parts[0].replace("/", "").isdigit():
-                        seq_key = parts[0]  # e.g., "1/3"
-                    elif parts[0] == "Class" and len(parts) > 1:
-                        seq_key = f"{parts[0]}_{parts[1]}"  # e.g., "Class_train:" or "Class_val:"
-                    elif parts[0] in ("train:", "val:"):
-                        seq_key = parts[0]  # Phase identifier
-
-                # Skip if we already showed 100% for this sequence
-                if seq_key and self.last_progress_line == f"{seq_key}:done":
-                    continue
-
-                # Mark this sequence as done
-                if seq_key:
-                    self.last_progress_line = f"{seq_key}:done"
-
-                self.last_was_progress = True
-            else:
-                # Skip empty line after progress bar
-                if not line and self.last_was_progress:
-                    self.last_was_progress = False
-                    continue
-                self.last_was_progress = False
+            if not (line := line.rstrip()):
+                continue  # a bare newline carries nothing once timestamped
 
             # General deduplication
             if line == self.last_line and current_time - self.last_time < 0.1:
@@ -218,12 +189,13 @@ class ConsoleLogger:
                 self._flush_buffer()
 
     def _flush_buffer(self):
-        """Flush buffered lines to destination and/or callback."""
+        """Flush buffered lines and current progress bar frames to destination and/or callback."""
         with self.buffer_lock:
-            if not self.buffer:
-                return
+            if not self.buffer and self.progress == self.progress_sent:
+                return  # nothing new: an idle bar must not flush a chunk of its own
             lines = self.buffer.copy()
             self.buffer.clear()
+            self.progress_sent = dict(self.progress)
             self.chunk_id += 1
             chunk_id = self.chunk_id  # Capture under lock to avoid race
 
@@ -238,7 +210,7 @@ class ConsoleLogger:
                 pass  # Silently ignore callback errors to avoid flooding stderr
 
         # Write to destination (file or API)
-        if self.destination is not None:
+        if self.destination is not None and lines:
             self._write_destination(content)
 
     def _write_destination(self, content):
@@ -269,7 +241,14 @@ class ConsoleLogger:
         def write(self, text):
             """Write text to the original stream and forward it to the capture callback."""
             self.original.write(text)
-            self.callback(text)
+            if self.callback:
+                self.callback(text, None)
+
+        def progress(self, bar_id, frame):
+            """Write a TQDM frame to the original stream and report it as bar state instead of a log line."""
+            self.original.write(frame)
+            if self.callback:
+                self.callback(frame, bar_id)
 
         def flush(self):
             """Flush the wrapped stream to propagate buffered output promptly during console capture."""
@@ -291,7 +270,7 @@ class ConsoleLogger:
 
         def emit(self, record):
             """Format and forward LogRecord messages to the capture callback for unified log streaming."""
-            self.callback(self.format(record) + "\n")
+            self.callback(self.format(record) + "\n", None)
 
 
 class _DriveInfo:
@@ -302,7 +281,7 @@ class _DriveInfo:
     disambiguation.
 
     Examples:
-        >>> logger = SystemLogger(all_drives=True)
+        >>> logger = SystemLogger()
         >>> logger.mounts
         ['/']
     """
@@ -403,7 +382,9 @@ class _DriveInfo:
                 values = block.get("mountpoints") or [block.get("mountpoint")]
                 if isinstance(values, str):
                     values = [values]
-                mounts.extend(m for m in values if isinstance(m, str) and m.startswith("/") and Path(m).is_dir())
+                values = [m for m in values if isinstance(m, str) and m.startswith("/") and Path(m).is_dir()]
+                if values:  # one mount per device, bind mounts report the same usage
+                    mounts.append(min(values, key=lambda m: (len(m), m)))
             for child in block.get("children", []):
                 visit(child, physical)
 
@@ -434,10 +415,13 @@ class SystemLogger:
     performance monitoring and analysis.
 
     Attributes:
-        pynvml: NVIDIA pynvml module instance if successfully imported, None otherwise.
+        pynvml (module | None): NVIDIA pynvml module if successfully imported, None otherwise.
         nvidia_initialized (bool): Whether NVIDIA GPU monitoring is available and initialized.
-        net_start: Initial network I/O counters for calculating cumulative usage.
-        disk_start: Initial disk I/O counters for calculating cumulative usage.
+        nvidia_versions (dict): NVIDIA 'driver_version' and 'cuda_version' strings read from NVML, if available.
+        net_start (namedtuple): Initial network I/O counters for calculating cumulative usage.
+        disk_start (namedtuple | None): Initial disk I/O counters for calculating cumulative usage.
+        mounts (list[str]): Mounted drive paths monitored for disk usage.
+        gpus (list[int] | None): NVML indices of the GPUs reported, or None for every GPU.
 
     Examples:
         Basic usage (single drive):
@@ -453,6 +437,10 @@ class SystemLogger:
         >>> for disk in metrics["disk"]:
         ...     print(f"{disk['mount']}: {disk['used_gb']}/{disk['total_gb']} GB")
 
+        Report only the GPUs a training run uses (an empty list reports none, e.g. for CPU training):
+        >>> logger = SystemLogger(gpus=[0, 1])
+        >>> list(logger.get_metrics()["gpus"])  # ['0', '1'] on a host with at least two NVIDIA GPUs
+
         Training loop integration:
         >>> system_logger = SystemLogger()
         >>> for epoch in range(epochs):
@@ -461,19 +449,30 @@ class SystemLogger:
         ...     # Log to database/file
     """
 
-    def __init__(self, all_drives=False):
+    def __init__(self, all_drives=False, gpus=None):
         """Initialize the system logger.
 
         Args:
             all_drives (bool): If True, monitor all mounted drives. If False, monitor the current drive.
+            gpus (list[int] | None): NVML indices of the GPUs to report, such as those a training run uses. None reports
+                every GPU and an empty list reports none.
         """
         import psutil  # scoped as slow import
 
         self.pynvml = None
         self.nvidia_initialized = self._init_nvidia()
+        self.nvidia_versions = {}
+        if self.nvidia_initialized:
+            try:
+                self.nvidia_versions["driver_version"] = self.pynvml.nvmlSystemGetDriverVersion()
+                cuda = self.pynvml.nvmlSystemGetCudaDriverVersion_v2()
+                self.nvidia_versions["cuda_version"] = f"{cuda // 1000}.{cuda % 1000 // 10}"
+            except self.pynvml.NVMLError:
+                pass
         self.net_start = psutil.net_io_counters()
         self.disk_start = psutil.disk_io_counters()
         self.mounts = _DriveInfo.mounts(psutil, all_drives)
+        self.gpus = gpus
 
         # For rate calculation
         self._prev_net = self.net_start
@@ -503,6 +502,9 @@ class SystemLogger:
 
         Collects comprehensive system metrics including CPU usage, RAM usage, disk usage, disk I/O statistics, network
         I/O statistics, and GPU metrics (if available).
+
+        On NVIDIA systems, also reports `driver_version` and `cuda_version` cached from NVML at initialization. CUDA is the
+        driver-supported version shown by nvidia-smi, not the installed toolkit or PyTorch build version.
 
         Example output (rates=False, default):
         ```python
@@ -537,7 +539,8 @@ class SystemLogger:
             rates (bool): If True, return disk/network as MB/s rates instead of cumulative MB.
 
         Returns:
-            (dict): Metrics dictionary with cpu, ram, disk, network, and gpus keys.
+            (dict): Metrics dictionary with cpu, ram, disk, disk_io, network, and gpus keys, plus driver_version and
+                cuda_version on NVIDIA systems.
 
         Examples:
             >>> logger = SystemLogger()
@@ -583,6 +586,7 @@ class SystemLogger:
                 break
 
         metrics = {
+            **self.nvidia_versions,
             "cpu": round(psutil.cpu_percent(), 3),
             "ram": round(memory.percent, 3),
             "disk": disks,
@@ -619,7 +623,7 @@ class SystemLogger:
             return gpus
         try:
             device_count = self.pynvml.nvmlDeviceGetCount()
-            for i in range(device_count):
+            for i in range(device_count) if self.gpus is None else [i for i in self.gpus if i < device_count]:
                 handle = self.pynvml.nvmlDeviceGetHandleByIndex(i)
                 util = self.pynvml.nvmlDeviceGetUtilizationRates(handle)
                 memory = self.pynvml.nvmlDeviceGetMemoryInfo(handle)

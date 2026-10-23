@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,7 @@ from PIL import __version__ as pil_version
 from ultralytics.utils import IS_COLAB, IS_KAGGLE, LOGGER, TryExcept, ops, plt_settings, threaded
 from ultralytics.utils.checks import check_font, check_version, is_ascii
 from ultralytics.utils.files import increment_path
+from ultralytics.utils.torch_utils import TORCH_1_10
 
 
 def _gaussian_filter1d(y, sigma: int = 3, truncate: float = 4.0) -> np.ndarray:
@@ -181,7 +184,7 @@ class Colors:
         return tuple(int(h[1 + i : 1 + i + 2], 16) for i in (0, 2, 4))
 
 
-colors = Colors()  # create instance for 'from utils.plots import colors'
+colors = Colors()  # create instance for 'from ultralytics.utils.plotting import colors'
 
 
 # Spectral_r anchors (RGB, far→near) baked into a LUT so colorize_depth needs no matplotlib import.
@@ -262,8 +265,10 @@ def colorize_depth(
 class Annotator:
     """Ultralytics Annotator for train/val mosaics and JPGs and predictions annotations.
 
+    Tensor images must be contiguous HWC BGR uint8.
+
     Attributes:
-        im (Image.Image | np.ndarray): The image to annotate.
+        im (Image.Image | np.ndarray | torch.Tensor): The image to annotate.
         pil (bool): Whether to use PIL or cv2 for drawing annotations.
         font (ImageFont.truetype | ImageFont.load_default): Font used for text annotations.
         lw (int): Line width for drawing.
@@ -274,6 +279,7 @@ class Annotator:
         light_colors (set): Set of colors considered light for text contrast.
 
     Examples:
+        >>> import cv2
         >>> from ultralytics.utils.plotting import Annotator
         >>> im0 = cv2.imread("test.png")
         >>> annotator = Annotator(im0, line_width=10)
@@ -289,11 +295,29 @@ class Annotator:
         pil: bool = False,
         example: str = "abc",
     ):
-        """Initialize the Annotator class with image and line width along with color palette for keypoints and limbs."""
+        """Initialize the Annotator class with image and line width along with color palette for keypoints and limbs.
+
+        Args:
+            im (np.ndarray | Image.Image | torch.Tensor): Image to annotate. Arrays and tensors are HWC BGR uint8;
+                grayscale is expanded to 3 channels, 2-channel images are zero-padded, and extra channels are dropped.
+            line_width (int, optional): Line width. Defaults to ~0.3% of the mean image dimension, at least 2.
+            font_size (int, optional): Font size for PIL text. Defaults to ~3.5% of the mean image dimension, at least
+                12.
+            font (str): Font file name used for PIL text.
+            pil (bool): Whether to draw with PIL instead of cv2. Forced True for PIL images and non-ASCII `example`.
+            example (str): Example label text used to detect non-ASCII characters that require PIL and a Unicode font.
+        """
         non_ascii = not is_ascii(example)  # non-latin labels, i.e. asian, arabic, cyrillic
         input_is_pil = isinstance(im, Image.Image)
+        input_is_tensor = isinstance(im, torch.Tensor)
         self.pil = pil or non_ascii or input_is_pil
         self.lw = line_width or max(round(sum(im.size if input_is_pil else im.shape) / 2 * 0.003), 2)
+        if input_is_tensor:
+            assert im.ndim == 3 and im.shape[2] == 3 and im.dtype == torch.uint8, (
+                f"Expected HWC uint8 tensor image with 3 channels, but got shape {tuple(im.shape)} and dtype {im.dtype}."
+            )
+            if self.pil or im.device.type == "cpu":
+                im, input_is_tensor = im.cpu().numpy(), False
         if not input_is_pil:
             if im.shape[2] == 1:  # handle grayscale
                 im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
@@ -314,10 +338,13 @@ class Annotator:
                 self.font = ImageFont.load_default()
             # Deprecation fix for w, h = getsize(string) -> _, _, w, h = getbox(string)
             if check_version(pil_version, "9.2.0"):
-                self.font.getsize = lambda x: self.font.getbbox(x)[2:4]  # text width, height
+                font = weakref.proxy(self.font)
+                self.font.getsize = lambda x: font.getbbox(x)[2:4]  # text width, height
         else:  # use cv2
-            assert im.data.contiguous, "Image not contiguous. Apply np.ascontiguousarray(im) to Annotator input images."
-            self.im = im if im.flags.writeable else im.copy()
+            assert im.is_contiguous() if input_is_tensor else im.data.contiguous, (
+                "Image not contiguous. Apply contiguous() or np.ascontiguousarray(im) to Annotator input images."
+            )
+            self.im = im if input_is_tensor or im.flags.writeable else im.copy()
             self.tf = max(self.lw - 1, 1)  # font thickness
             self.sf = self.lw / 3  # font scale
         # Pose
@@ -381,6 +408,7 @@ class Annotator:
             (tuple): Text color for label.
 
         Examples:
+            >>> import cv2
             >>> from ultralytics.utils.plotting import Annotator
             >>> im0 = cv2.imread("test.png")
             >>> annotator = Annotator(im0, line_width=10)
@@ -397,17 +425,20 @@ class Annotator:
         """Draw a bounding box on an image with a given label.
 
         Args:
-            box (tuple): The bounding box coordinates (x1, y1, x2, y2).
+            box (tuple | list | torch.Tensor | np.ndarray): The bounding box coordinates (x1, y1, x2, y2), or a list of
+                polygon points with shape (n, 2), e.g. the 4 corners of an oriented box.
             label (str, optional): The text label to be displayed.
-            color (tuple, optional): The background color of the rectangle.
-            txt_color (tuple, optional): The color of the text.
+            color (tuple, optional): The color of the box outline and label background.
+            txt_color (tuple, optional): The color of the text, overridden for known dark or light box colors.
 
         Examples:
+            >>> import cv2
             >>> from ultralytics.utils.plotting import Annotator
             >>> im0 = cv2.imread("test.png")
             >>> annotator = Annotator(im0, line_width=10)
             >>> annotator.box_label(box=[10, 20, 30, 40], label="person")
         """
+        self._to_numpy()
         txt_color = self.get_txt_color(color, txt_color)
         if isinstance(box, (torch.Tensor, np.ndarray)):
             box = box.tolist()
@@ -518,52 +549,41 @@ class Annotator:
         if box is not None:
             self.box_label(box, box_label, color=(0, 0, 0))
 
-    def masks(self, masks, colors, im_gpu: torch.Tensor = None, alpha: float = 0.5, retina_masks: bool = False):
+    def masks(self, masks, colors, alpha: float = 0.5):
         """Plot masks on image.
 
         Args:
             masks (torch.Tensor | np.ndarray): Predicted masks with shape [n, h, w].
-            colors (list[list[int]]): Colors for predicted masks, [[r, g, b] * n].
-            im_gpu (torch.Tensor | None): Image on GPU with shape [3, h, w], range [0, 1].
+            colors (list[list[int]]): BGR colors for predicted masks, [[b, g, r] * n], matching `self.im`.
             alpha (float, optional): Mask transparency: 0.0 fully transparent, 1.0 opaque.
-            retina_masks (bool, optional): Whether to use high resolution masks or not.
         """
         if self.pil:
             # Convert to numpy first
             self.im = np.asarray(self.im).copy()
-        if im_gpu is None:
-            assert isinstance(masks, np.ndarray), "`masks` must be a np.ndarray if `im_gpu` is not provided."
+        if isinstance(masks, np.ndarray):
+            self._to_numpy()
             overlay = self.im.copy()
             for i, mask in enumerate(masks):
                 overlay[mask.astype(bool)] = colors[i]
             self.im = cv2.addWeighted(self.im, 1 - alpha, overlay, alpha, 0)
-        else:
-            assert isinstance(masks, torch.Tensor), "'masks' must be a torch.Tensor if 'im_gpu' is provided."
-            if len(masks) == 0:
-                self.im[:] = im_gpu.permute(1, 2, 0).contiguous().cpu().numpy() * 255
-                return
-            if im_gpu.device != masks.device:
-                im_gpu = im_gpu.to(masks.device)
-
-            ih, iw = self.im.shape[:2]
-            if not retina_masks:
-                # Use scale_masks to properly remove padding and upsample, convert bool to float first
-                masks = ops.scale_masks(masks[None].float(), (ih, iw))[0] > 0.5
-                # Convert original BGR image to RGB tensor
-                im_gpu = (
-                    torch.from_numpy(self.im).to(masks.device).permute(2, 0, 1).flip(0).contiguous().float() / 255.0
-                )
-
-            colors = torch.tensor(colors, device=masks.device, dtype=torch.float32) / 255.0  # shape(n,3)
-            colors = colors[:, None, None]  # shape(n,1,1,3)
+        elif len(masks):
+            # Use scale_masks to properly remove padding and upsample, convert bool to float first
+            tensor_image = isinstance(self.im, torch.Tensor)
+            device = self.im.device if tensor_image else masks.device
+            masks = ops.scale_masks(masks[None].to(device).float(), self.im.shape[:2])[0] > 0.5
+            colors = torch.tensor(colors, device=device, dtype=torch.float32) / 255.0  # shape(n,3)
+            colors = colors[:, None, None] * alpha  # shape(n,1,1,3), premultiplied by alpha
             masks = masks.unsqueeze(3)  # shape(n,h,w,1)
-            masks_color = masks * (colors * alpha)  # shape(n,h,w,3)
-            inv_alpha_masks = (1 - masks * alpha).cumprod(0)  # shape(n,h,w,1)
-            mcs = masks_color.max(dim=0).values  # shape(h,w,3)
-
-            im_gpu = im_gpu.flip(dims=[0]).permute(1, 2, 0).contiguous()  # shape(h,w,3)
-            im_gpu = im_gpu * inv_alpha_masks[-1] + mcs
-            self.im[:] = (im_gpu * 255).byte().cpu().numpy()
+            mcs = torch.empty((*masks.shape[1:3], 3), device=device, dtype=torch.float32)  # shape(h,w,3)
+            inv_alpha_masks = torch.empty((*masks.shape[1:3], 1), device=device, dtype=torch.float32)  # shape(h,w,1)
+            # Reduce in row bands so the (n,h,w,*) intermediates never span the full height
+            bands = max(1, masks.numel() * 12 // 2**23)  # 12 bytes per mask element downstream, 8 MB per band
+            for m, mcs_band, inv_band in zip(masks.chunk(bands, 1), mcs.chunk(bands), inv_alpha_masks.chunk(bands)):
+                torch.amax(m * colors, 0, out=mcs_band)
+                torch.prod(1 - m * alpha, 0, out=inv_band)
+            im = (self.im if tensor_image else torch.from_numpy(self.im)).to(device).float() / 255.0
+            im = ((im * inv_alpha_masks + mcs) * 255).byte()
+            self.im[:] = im if tensor_image else im.cpu().numpy()
         if self.pil:
             # Convert im back to PIL and update draw
             self.fromarray(self.im)
@@ -576,14 +596,13 @@ class Annotator:
             alpha (float, optional): Mask transparency: 0.0 fully transparent, 1.0 opaque.
             ignore_index (int, optional): Class index to ignore (e.g., 255 for void/ignore).
         """
+        self._to_numpy()
         if self.pil:
             # Convert to numpy first
             self.im = np.asarray(self.im).copy()
-        overlay = np.zeros_like(self.im)
-        for cls_id in np.unique(mask):
-            if cls_id == ignore_index:
-                continue
-            overlay[mask == cls_id] = colors(int(cls_id), True)
+        ids = np.unique(mask)  # class IDs present, ascending
+        palette = np.array([(0, 0, 0) if i == ignore_index else colors(int(i), True) for i in ids], self.im.dtype)
+        overlay = palette[np.searchsorted(ids, mask)] if len(ids) else np.zeros_like(self.im)
         self.im = cv2.addWeighted(self.im, 1 - alpha, overlay, alpha, 0)
         if self.pil:
             # Convert im back to PIL and update draw
@@ -604,6 +623,7 @@ class Annotator:
             cmap (str): Colormap, one of "inferno", "jet", "spectral". See `colorize_depth`.
             mode (str): "metric" or "disparity" normalization. See `colorize_depth`.
         """
+        self._to_numpy()
         if self.pil:
             self.im = np.asarray(self.im).copy()
         heat = colorize_depth(depth, cmap=cmap, mode=mode)  # BGR, matching the Annotator buffer convention
@@ -625,12 +645,12 @@ class Annotator:
         """Plot keypoints on the image.
 
         Args:
-            kpts (torch.Tensor): Keypoints, shape [17, 3] (x, y, confidence).
-            shape (tuple, optional): Image shape (h, w).
-            radius (int, optional): Keypoint radius.
+            kpts (torch.Tensor | np.ndarray): Keypoints with shape [nkpt, 2] (x, y) or [nkpt, 3] (x, y, confidence).
+            shape (tuple, optional): Image shape (h, w). Currently unused.
+            radius (int, optional): Keypoint radius. Defaults to the annotator line width.
             kpt_line (bool, optional): Draw lines between keypoints.
             conf_thres (float, optional): Confidence threshold.
-            kpt_color (tuple, optional): Keypoint color.
+            kpt_color (tuple, optional): Color for all keypoints and limbs, overriding the default pose palette.
 
         Notes:
             - `kpt_line=True` currently only supports human pose plotting.
@@ -638,6 +658,7 @@ class Annotator:
             - If self.pil is True, converts image to numpy array and back to PIL.
         """
         radius = radius if radius is not None else self.lw
+        self._to_numpy()
         if self.pil:
             # Convert to numpy first
             self.im = np.asarray(self.im).copy()
@@ -647,12 +668,12 @@ class Annotator:
         for i, k in enumerate(kpts):
             color_k = kpt_color or (self.kpt_color[i].tolist() if is_pose else colors(i))
             x_coord, y_coord = k[0], k[1]
-            if x_coord % shape[1] != 0 and y_coord % shape[0] != 0:
-                if len(k) == 3:
-                    conf = k[2]
-                    if conf < conf_thres:
-                        continue
-                cv2.circle(self.im, (int(x_coord), int(y_coord)), radius, color_k, -1, lineType=cv2.LINE_AA)
+            if len(k) == 3:
+                if k[2] < conf_thres:
+                    continue
+            elif x_coord == 0 and y_coord == 0:  # (0, 0) marks a missing keypoint when there is no confidence channel
+                continue
+            cv2.circle(self.im, (int(x_coord), int(y_coord)), radius, color_k, -1, lineType=cv2.LINE_AA)
 
         if kpt_line:
             ndim = kpts.shape[-1]
@@ -664,9 +685,9 @@ class Annotator:
                     conf2 = kpts[(sk[1] - 1), 2]
                     if conf1 < conf_thres or conf2 < conf_thres:
                         continue
-                if pos1[0] % shape[1] == 0 or pos1[1] % shape[0] == 0 or pos1[0] < 0 or pos1[1] < 0:
+                elif not (kpts[sk[0] - 1, :2].any() and kpts[sk[1] - 1, :2].any()):  # (0, 0) marks a missing keypoint
                     continue
-                if pos2[0] % shape[1] == 0 or pos2[1] % shape[0] == 0 or pos2[0] < 0 or pos2[1] < 0:
+                if min(pos1 + pos2) < 0:
                     continue
                 cv2.line(
                     self.im,
@@ -691,11 +712,12 @@ class Annotator:
             xy (list[int]): Top-left coordinates for text placement.
             text (str): Text to be drawn.
             txt_color (tuple, optional): Text color.
-            anchor (str, optional): Text anchor position ('top' or 'bottom').
+            anchor (str, optional): Text anchor position ('top' or 'bottom'), used by PIL drawing only.
             box_color (tuple, optional): Box background color with optional alpha.
         """
+        self._to_numpy()
         if self.pil:
-            w, h = self.font.getsize(text)
+            h = max(self.font.getsize(line)[1] for line in text.split("\n"))  # measure per line, raqm rejects newlines
             if anchor == "bottom":  # start y from font bottom
                 xy[1] += 1 - h
             for line in text.split("\n"):
@@ -719,14 +741,20 @@ class Annotator:
         self.im = im if isinstance(im, Image.Image) else Image.fromarray(im)
         self.draw = ImageDraw.Draw(self.im)
 
+    def _to_numpy(self):
+        """Move a tensor image to CPU only when a CPU drawing operation requires it."""
+        if isinstance(self.im, torch.Tensor):
+            self.im = self.im.cpu().numpy()
+
     def result(self, pil=False):
-        """Return annotated image as array or PIL image."""
+        """Return annotated image as a BGR NumPy array, or as an RGB PIL image if `pil` is True."""
+        self._to_numpy()
         im = np.asarray(self.im)  # self.im is in BGR
         return Image.fromarray(im[..., ::-1]) if pil else im
 
     def show(self, title: str | None = None):
         """Show the annotated image."""
-        im = Image.fromarray(np.asarray(self.im)[..., ::-1])  # Convert BGR NumPy array to RGB PIL Image
+        im = Image.fromarray(self.result()[..., ::-1])  # Convert BGR NumPy array to RGB PIL Image
         if IS_COLAB or IS_KAGGLE:  # cannot use IS_JUPYTER as it runs for all IPython environments
             try:
                 display(im)  # noqa - display() function only available in ipython environments
@@ -737,7 +765,7 @@ class Annotator:
 
     def save(self, filename: str = "image.jpg"):
         """Save the annotated image to 'filename'."""
-        cv2.imwrite(filename, np.asarray(self.im))
+        cv2.imwrite(filename, self.result())
 
     @staticmethod
     def get_bbox_dimension(bbox: tuple | list):
@@ -753,9 +781,8 @@ class Annotator:
 
         Examples:
             >>> from ultralytics.utils.plotting import Annotator
-            >>> im0 = cv2.imread("test.png")
-            >>> annotator = Annotator(im0, line_width=10)
-            >>> annotator.get_bbox_dimension(bbox=[10, 20, 30, 40])
+            >>> Annotator.get_bbox_dimension(bbox=[10, 20, 30, 40])
+            (20, 20, 400)
         """
         x_min, y_min, x_max, y_max = bbox
         width = x_max - x_min
@@ -765,13 +792,14 @@ class Annotator:
 
 @TryExcept()
 @plt_settings()
-def plot_labels(boxes, cls, names=(), save_dir=Path(""), on_plot=None):
+def plot_labels(boxes, cls, names: dict[int, str] | None = None, save_dir=Path(""), on_plot=None):
     """Plot training labels including class histograms and box statistics.
 
     Args:
-        boxes (np.ndarray): Bounding box coordinates in format [x, y, width, height].
+        boxes (np.ndarray): Normalized bounding boxes with shape (N, 4) in format [x_center, y_center, width, height].
         cls (np.ndarray): Class indices.
-        names (dict, optional): Dictionary mapping class indices to class names.
+        names (dict[int, str], optional): Dictionary mapping class indices to class names, used for x-axis tick labels
+            when there are fewer than 30 classes.
         save_dir (Path, optional): Directory to save the plot.
         on_plot (Callable, optional): Function to call after plot is saved.
     """
@@ -792,7 +820,7 @@ def plot_labels(boxes, cls, names=(), save_dir=Path(""), on_plot=None):
     for i in range(nc):
         y[2].patches[i].set_color([x / 255 for x in colors(i)])
     ax[0].set_ylabel("instances")
-    if 0 < len(names) < 30:
+    if names and len(names) < 30:
         ax[0].set_xticks(range(len(names)))
         ax[0].set_xticklabels(list(names.values()), rotation=90, fontsize=10)
         ax[0].bar_label(y[2])
@@ -839,9 +867,9 @@ def save_one_box(
     bounding box.
 
     Args:
-        xyxy (torch.Tensor | list): A tensor or list representing the bounding box in xyxy format.
-        im (np.ndarray): The input image.
-        file (Path, optional): The path where the cropped image will be saved.
+        xyxy (torch.Tensor | list): A bounding box in xyxy format, or (4, 2) OBB corners for a rotation-aligned crop.
+        im (np.ndarray): The input BGR image with shape (H, W, C).
+        file (Path, optional): Output path, saved as JPEG with an incremented name if the JPEG path already exists.
         gain (float, optional): A multiplicative factor to increase the size of the bounding box.
         pad (int, optional): The number of pixels to add to the width and height of the bounding box.
         square (bool, optional): If True, the bounding box will be transformed into a square.
@@ -852,15 +880,19 @@ def save_one_box(
         (np.ndarray): The cropped image.
 
     Examples:
+        >>> from pathlib import Path
+        >>> import cv2
         >>> from ultralytics.utils.plotting import save_one_box
         >>> xyxy = [50, 50, 150, 150]
         >>> im = cv2.imread("image.jpg")
-        >>> cropped_im = save_one_box(xyxy, im, file="cropped.jpg", square=True)
+        >>> cropped_im = save_one_box(xyxy, im, file=Path("cropped.jpg"), square=True)
     """
-    if isinstance(xyxy, np.ndarray):
-        xyxy = torch.from_numpy(xyxy)
-    elif not isinstance(xyxy, torch.Tensor):  # may be list
-        xyxy = torch.stack(xyxy)
+    xyxy = torch.as_tensor(xyxy, dtype=torch.float32)  # float so integer boxes keep fractional centers and gain/pad
+    if xyxy.shape[-2:] == (4, 2):  # OBB corners: warp the box upright at its size, then crop the whole warp below
+        p = xyxy.reshape(4, 2).cpu().numpy()
+        w, h = (max(round(float(np.linalg.norm(p[0] - p[i]))), 1) for i in (3, 1))
+        M = cv2.getAffineTransform(p[:3], np.float32([[w, h], [w, 0], [0, 0]]))
+        im, xyxy = cv2.warpAffine(im, M, (w, h)).reshape(h, w, -1), torch.tensor([0.0, 0.0, w, h])
     b = ops.xyxy2xywh(xyxy.view(-1, 4))  # boxes
     if square:
         b[:, 2:] = b[:, 2:].max(1)[0].unsqueeze(1)  # attempt rectangle to square
@@ -871,7 +903,7 @@ def save_one_box(
     crop = im[int(xyxy[0, 1]) : int(xyxy[0, 3]), int(xyxy[0, 0]) : int(xyxy[0, 2]), :: (1 if BGR or grayscale else -1)]
     if save:
         file.parent.mkdir(parents=True, exist_ok=True)  # make directory
-        f = str(increment_path(file).with_suffix(".jpg"))
+        f = str(increment_path(file.with_suffix(".jpg")))
         # cv2.imwrite(f, crop)  # save BGR, https://github.com/ultralytics/yolov5/issues/7007 chroma subsampling issue
         im_save = crop.squeeze(-1) if grayscale else crop[..., ::-1] if BGR else crop
         Image.fromarray(im_save).save(f, quality=95, subsampling=0)  # save RGB
@@ -898,7 +930,7 @@ def plot_images(
     labels: dict[str, Any],
     images: torch.Tensor | np.ndarray | None = None,
     paths: list[str] | None = None,
-    fname: str = "images.jpg",
+    fname: str | Path = "images.jpg",
     names: dict[int, str] | None = None,
     on_plot: Callable | None = None,
     max_size: int = 1920,
@@ -913,10 +945,11 @@ def plot_images(
 
     Args:
         labels (dict[str, Any]): Dictionary containing detection data with keys like 'cls', 'bboxes', 'conf', 'masks',
-            'keypoints', 'batch_idx', 'img'.
-        images (torch.Tensor | np.ndarray): Batch of images to plot. Shape: (batch_size, channels, height, width).
+            'keypoints', 'semantic_mask', 'depth', 'batch_idx', 'img'. 'img', if present, overrides `images`.
+        images (torch.Tensor | np.ndarray | None): Batch of images to plot. Shape: (batch_size, channels, height,
+            width).
         paths (list[str] | None): List of file paths for each image in the batch.
-        fname (str): Output filename for the plotted image grid.
+        fname (str | Path): Output filename for the plotted image grid.
         names (dict[int, str] | None): Dictionary mapping class indices to class names.
         on_plot (Callable | None): Callback function to be called after saving the plot.
         max_size (int): Maximum size of the output image grid.
@@ -928,7 +961,8 @@ def plot_images(
         horizon (bool): Whether to plot OBB boxes as horizon lines with optional top-confidence filtering.
 
     Returns:
-        (np.ndarray | None): Plotted image grid as a numpy array if save is False, None otherwise.
+        (np.ndarray | None): Plotted image grid as a numpy array if save is False, None otherwise. Runs in a background
+            thread and returns the `threading.Thread` instead unless called with `threaded=False`.
 
     Notes:
         This function supports both tensor and numpy array inputs. It will automatically
@@ -1047,7 +1081,7 @@ def plot_images(
                         kpts_[..., 0] *= w  # scale to pixels
                         kpts_[..., 1] *= h
                     elif scale < 1:  # absolute coords need scale if image scales
-                        kpts_ *= scale
+                        kpts_[..., :2] *= scale
                 kpts_[..., 0] += x
                 kpts_[..., 1] += y
                 for j in range(len(kpts_)):
@@ -1090,9 +1124,12 @@ def plot_images(
             if mh != h or mw != w:
                 mask = cv2.resize(mask.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
             im = np.asarray(annotator.im).copy()
-            sub_annotator = Annotator(np.ascontiguousarray(im[y : y + h, x : x + w]), line_width=1, pil=False)
+            # The mosaic deviates from the Annotator BGR-buffer convention (it holds RGB), so convert the patch
+            # to BGR for the overlay, then back to RGB for the mosaic.
+            sub_bgr = cv2.cvtColor(np.ascontiguousarray(im[y : y + h, x : x + w]), cv2.COLOR_RGB2BGR)
+            sub_annotator = Annotator(sub_bgr, line_width=1, pil=False)
             sub_annotator.semantic_mask(mask, alpha=0.4)
-            im[y : y + h, x : x + w] = sub_annotator.im
+            im[y : y + h, x : x + w] = cv2.cvtColor(sub_annotator.im, cv2.COLOR_BGR2RGB)
             annotator.fromarray(im)
 
         # Plot depth maps
@@ -1120,14 +1157,16 @@ def plot_images(
 
 
 @plt_settings()
-def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Callable | None = None):
-    """Plot training results from a results CSV file. The function supports various types of data including instance
-    segmentation, semantic segmentation, pose estimation, and classification. Plots are saved as 'results.png' in
-    the directory where the CSV is located.
+def plot_results(file: str | Path = "", dir: str | Path = "", on_plot: Callable | None = None):
+    """Plot training results from a results CSV file.
+
+    The function supports various types of data including detection, instance segmentation, semantic segmentation, depth
+    estimation, classification, and pose estimation. All 'results*.csv' files in the CSV's directory are plotted and
+    saved as 'results.png' in that directory.
 
     Args:
-        file (str, optional): Path to the CSV file containing the training results.
-        dir (str, optional): Directory where the CSV file is located if 'file' is not provided.
+        file (str | Path, optional): Path to the CSV file containing the training results.
+        dir (str | Path, optional): Directory where the CSV file is located if 'file' is not provided.
         on_plot (Callable, optional): Callback function to be executed after plotting. Takes filename as an argument.
 
     Examples:
@@ -1145,19 +1184,20 @@ def plot_results(file: str = "path/to/results.csv", dir: str = "", on_plot: Call
     fig, ax = None, None
     for i, f in enumerate(files):
         try:
-            data = pl.read_csv(f, infer_schema_length=None)
+            data = pl.read_csv(f.read_bytes(), infer_schema_length=None)
             if i == 0:
                 for c in data.columns:
                     if "loss" in c:
                         loss_keys.append(c)
                     elif "metric" in c:
                         metric_keys.append(c)
-                loss_mid, metric_mid = len(loss_keys) // 2, len(metric_keys) // 2
+                loss_mid, metric_mid = len(loss_keys) // 2, (len(metric_keys) + 1) // 2
                 columns = (
                     loss_keys[:loss_mid] + metric_keys[:metric_mid] + loss_keys[loss_mid:] + metric_keys[metric_mid:]
                 )
-                fig, ax = plt.subplots(2, len(columns) // 2, figsize=(len(columns) + 2, 6), tight_layout=True)
+                fig, ax = plt.subplots(2, (len(columns) + 1) // 2, figsize=(len(columns) + 2, 6), tight_layout=True)
                 ax = ax.ravel()
+                ax[-1].set_visible(len(columns) % 2 == 0)
             x = data.select(data.columns[0]).to_numpy().flatten()
             for i, j in enumerate(columns):
                 y = data.select(j).to_numpy().flatten().astype("float")
@@ -1248,11 +1288,11 @@ def plot_depth_panels(
     titles: list[str] | None = None,
     max_images: int = 4,
 ) -> None:
-    """Write a depth panel grid: one row per image, columns RGB | GT (if provided) | one per entry of ``preds``.
+    """Write a depth panel grid: one row per image, columns RGB | GT (if provided) | one per entry of `preds`.
 
-    All depth columns share the GT valid-pixel range per row, so a scale error between GT and any prediction shows up
-    directly as a color mismatch. Panels are resized to the RGB image size, so predictions at head stride need no prior
-    interpolation.
+    With GT, all depth columns share the GT valid-pixel range per row, so a scale error between GT and any prediction
+    shows up directly as a color mismatch; without GT, each prediction uses its own valid-pixel range. Panels are
+    resized to the RGB image size, so predictions at head stride need no prior interpolation.
 
     Args:
         imgs (torch.Tensor): (B,3,H,W) float image tensor in [0,1].
@@ -1306,11 +1346,14 @@ def plot_depth_panels(
 def plot_tune_results(results_file: str = "tune_results.ndjson", exclude_zero_fitness_points: bool = True):
     """Plot the evolution results stored in a tuning NDJSON file.
 
+    Saves 'tune_scatter_plots.png' and 'tune_fitness.png' next to the results file.
+
     Args:
         results_file (str, optional): Path to the NDJSON file containing the tuning results.
         exclude_zero_fitness_points (bool, optional): Don't include points with zero fitness in tuning plots.
 
     Examples:
+        >>> from ultralytics.utils.plotting import plot_tune_results
         >>> plot_tune_results("path/to/tune_results.ndjson")
     """
     import json
@@ -1334,7 +1377,6 @@ def plot_tune_results(results_file: str = "tune_results.ndjson", exclude_zero_fi
         [[r.get("fitness", 0.0)] + [r.get("hyperparameters", {}).get(k, np.nan) for k in keys] for r in records],
         dtype=float,
     )
-    len(x)
     all_fitness = x[:, 0]  # fitness
     zero_mask = slice(None)
     if exclude_zero_fitness_points:
@@ -1361,60 +1403,158 @@ def plot_tune_results(results_file: str = "tune_results.ndjson", exclude_zero_fi
         plt.subplot(n, n, i + 1)
         plt_color_scatter(v, fitness, cmap="viridis", alpha=0.8, edgecolors="none")
         plt.plot(mu, fitness.max(), "k+", markersize=15)
-        plt.title(f"{k} = {mu:.3g}", fontdict={"size": 9})  # limit to 40 characters
+        plt.title(f"{k} = {mu:.3g}", fontdict={"size": 9})
         plt.tick_params(axis="both", labelsize=8)  # Set axis label size to 8
         if i % n != 0:
             plt.yticks([])
     _save_one_file(results_file.with_name("tune_scatter_plots.png"))
 
-    # Fitness vs iteration
-    x = range(1, len(all_fitness) + 1)
-    plt.figure(figsize=(10, 6), tight_layout=True)
-    for dataset in sorted({k for r in records for k in r.get("datasets", {})}):
-        y = np.array([r.get("datasets", {}).get(dataset, {}).get("fitness", np.nan) for r in records], dtype=float)
-        if exclude_zero_fitness_points and not isinstance(zero_mask, slice):
-            y = y[zero_mask]
-        plt.plot(x, y, "o", markersize=5, alpha=0.8, label=dataset)
-    plt.plot(x, _gaussian_filter1d(all_fitness, sigma=3), ":", color="0.35", label="smoothed mean", linewidth=2)
-    plt.title("Fitness vs Iteration")
-    plt.xlabel("Iteration")
-    plt.ylabel("Fitness")
-    plt.grid(True)
-    plt.legend()
+    # Fitness progress and per-dataset change from the initial to best result
+    plot_records = records if isinstance(zero_mask, slice) else [r for r, keep in zip(records, zero_mask) if keep]
+    datasets = sorted({k for r in plot_records for k in r.get("datasets", {})})
+    _, (ax1, ax2) = plt.subplots(
+        1,
+        2,
+        figsize=(16, max(6, len(datasets) * 0.28)),
+        gridspec_kw={"width_ratios": (1, 1.35)},
+        constrained_layout=True,
+    )
+    iterations = np.array([r.get("iteration", i) for i, r in enumerate(plot_records, 1)])
+    best_idx = int(all_fitness.argmax())
+    ax1.scatter(iterations, all_fitness, s=28, color="0.45", alpha=0.75, label="Iteration")
+    ax1.plot(iterations, np.maximum.accumulate(all_fitness), color="#2563eb", linewidth=2.5, label="Best so far")
+    ax1.axhline(all_fitness[0], color="#dc2626", linestyle="--", label=f"Initial {all_fitness[0]:.4f}")
+    ax1.scatter(iterations[best_idx], all_fitness[best_idx], s=90, color="#16a34a", zorder=5, label="Best")
+    ax1.set(title="Fitness Progress", xlabel="Iteration", ylabel="Fitness")
+    ax1.grid(alpha=0.2)
+    ax1.legend()
+    if datasets:
+        initial = np.array([plot_records[0].get("datasets", {}).get(k, {}).get("fitness", 0.0) for k in datasets])
+        best = np.array([plot_records[best_idx].get("datasets", {}).get(k, {}).get("fitness", 0.0) for k in datasets])
+        order = np.argsort(best - initial)
+        y = np.arange(len(datasets))
+        ax2.hlines(y, initial[order], best[order], color="0.8")
+        ax2.scatter(initial[order], y, s=24, color="#dc2626", label="Initial")
+        ax2.scatter(best[order], y, s=24, color="#16a34a", label=f"Best aggregate iteration {iterations[best_idx]}")
+        ax2.set_yticks(y)
+        ax2.set_yticklabels(np.array(datasets)[order], fontsize=8)
+        ax2.set(title="Per-Dataset Fitness: Initial vs Best Aggregate Iteration", xlabel="Fitness")
+        ax2.grid(axis="x", alpha=0.2)
+        ax2.legend()
+    else:
+        ax2.set_axis_off()
     _save_one_file(results_file.with_name("tune_fitness.png"))
 
 
-@plt_settings()
-def feature_visualization(x, module_type: str, stage: int, n: int = 32, save_dir: Path = Path("runs/detect/exp")):
-    """Visualize feature maps of a given model module during inference.
+def class_activation_map(
+    model,
+    im: torch.Tensor,
+    paths: list[str],
+    save_dir: Path,
+    *args,
+    conf: float = 0.25,
+    classes=None,
+    topk: int = 16,
+    **kwargs,
+) -> Any:
+    """Run inference and save a class activation heatmap for each image of the batch.
+
+    LayerCAM weights each head-input position by its positive gradient toward the predicted class score. Each prediction
+    and head level is normalized independently before taking their element-wise maximum, preventing stronger predictions
+    or levels from hiding weaker ones.
 
     Args:
-        x (torch.Tensor): Features to be visualized.
-        module_type (str): Module type.
-        stage (int): Module stage within the model.
-        n (int, optional): Maximum number of feature maps to plot.
-        save_dir (Path, optional): Directory to save results.
+        model (torch.nn.Module): AutoBackend wrapping a PyTorch model.
+        im (torch.Tensor): Preprocessed images of shape (B, 3, H, W).
+        paths (list[str]): Source path of each image of the batch, used to name the saved overlays.
+        save_dir (Path): Directory to save the overlays in.
+        *args (Any): Additional positional arguments passed to the model forward.
+        conf (float): Score threshold a prediction must pass to contribute, falling back to the single best prediction
+            for images where nothing passes it, so that a near miss can still be inspected.
+        classes (int | list[int], optional): Only let these class ids contribute, as in the predict `classes` filter.
+        topk (int): Maximum number of predictions to explain per image, each one costing a backward pass.
+        **kwargs (Any): Additional keyword arguments passed to the model forward.
+
+    Returns:
+        (Any): Model predictions, detached from the autograd graph.
     """
-    import matplotlib.pyplot as plt  # scope for faster 'import ultralytics'
+    acts, scores = [], []
 
-    for m in ("Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder"):  # all model heads
-        if m in module_type:
-            return
-    if isinstance(x, torch.Tensor):
-        _, channels, height, width = x.shape  # batch, channels, height, width
-        if height > 1 and width > 1:
-            f = save_dir / f"stage{stage}_{module_type.rsplit('.', 1)[-1]}_features.png"  # filename
+    def pre_hook(module, inputs):
+        """Capture the feature maps entering the head, before heads like WorldDetect overwrite them in place."""
+        x = inputs[0]
+        acts.extend(a for a in (x if isinstance(x, (list, tuple)) else [x]) if a.ndim == 4)
 
-            blocks = torch.chunk(x[0].cpu(), channels, dim=0)  # select batch index 0, block by channels
-            n = min(n, channels)  # number of plots
-            _, ax = plt.subplots(math.ceil(n / 8), 8, tight_layout=True)  # n/8 rows x 8 cols
-            ax = ax.ravel()
-            plt.subplots_adjust(wspace=0.05, hspace=0.05)
-            for i in range(n):
-                ax[i].imshow(blocks[i].squeeze())  # cmap='gray'
-                ax[i].axis("off")
+    def hook(module, inputs, output):
+        """Capture the class logits leaving the head."""
+        raw = output[1] if isinstance(output, tuple) else output  # heads returning (predictions, raw) keep the raw
+        if isinstance(raw, dict):  # Detect and subclasses: follow the selected inference branch
+            s = raw.get("one2one" if module.end2end else "one2many", raw)["scores"]  # (B, nc, anchors)
+        elif isinstance(raw, tuple):  # RTDETRDecoder, raw = (dec_bboxes, dec_scores, ...)
+            s = raw[1][-1].transpose(1, 2)  # last decoder layer, (B, nc, queries)
+        else:  # Classify (B, nc), SemanticSegment (B, nc, h, w), Depth (B, 1, h, w)
+            s = raw
+        scores.append(s.reshape(*s.shape[:2], -1))  # class logits, (B, nc, predictions)
 
-            LOGGER.info(f"Saving {f}... ({n}/{channels})")
-            plt.savefig(f, dpi=300, bbox_inches="tight")
-            plt.close()
-            np.save(str(f.with_suffix(".npy")), x[0].cpu().numpy())  # npy save
+    head = model.model.model[-1]  # AutoBackend -> PyTorch model -> head
+    head.shape = head.shapes = None  # rebuild the anchor caches, inference tensors in them break the autograd graph
+    handles = [head.register_forward_pre_hook(pre_hook), head.register_forward_hook(hook)]
+    # smart_inference_mode() wraps the caller in inference_mode from torch 1.10 and in no_grad below it, and only the
+    # former has to be left before autograd will record anything.
+    with torch.inference_mode(False) if TORCH_1_10 else contextlib.nullcontext(), torch.enable_grad():
+        try:
+            im = im.clone().requires_grad_(True)  # model parameters have requires_grad=False, so seed the graph here
+            preds = model(im, *args, **kwargs)
+        finally:
+            for handle in handles:
+                handle.remove()
+        s = torch.cat(scores, 2)  # (B, nc, predictions) class logits
+        if classes is not None:
+            cls = torch.as_tensor(classes, dtype=torch.long, device=s.device).flatten()
+            cls = cls[(cls >= 0) & (cls < s.shape[1])]  # drop ids outside this model's output channels
+            if len(cls):
+                s = s[:, cls]  # heatmap for the requested classes only
+        s = s.amax(1)  # (B, predictions) best class logit of each prediction
+        keep = (s.sigmoid() >= conf) | (s == s.amax(1, keepdim=True))  # top prediction alone if none above conf
+        n = min(int(keep.sum(1).amax()), topk)  # predictions to explain, one backward pass each
+        if int(keep.sum(1).amax()) > n:
+            LOGGER.warning(f"Explaining the {n} strongest predictions per image out of {int(keep.sum(1).amax())}.")
+        rank = torch.arange(n, device=s.device) % keep.sum(1, keepdim=True).clamp(min=1)  # short images repeat
+        order = s.masked_fill(~keep, float("-inf")).argsort(1, descending=True).gather(1, rank)  # (B, n)
+        cam = None
+        for k in range(n):
+            levels = []
+            grads = torch.autograd.grad(s.gather(1, order[:, k : k + 1]).sum(), acts, retain_graph=k < n - 1)
+            for a, g in zip(acts, grads):
+                c = (g.float().clamp(min=0) * a.float()).sum(1, keepdim=True)  # LayerCAM, per-position weighting
+                c = c.clamp(min=0)  # activations can be negative, keep only evidence for the prediction
+                c = torch.nn.functional.interpolate(c, im.shape[2:], mode="bilinear", align_corners=False)
+                levels.append(c / c.amax((2, 3), keepdim=True).clamp(min=1e-7))
+            # The level a prediction is made on peaks far higher than the rest, so summing raw would shrink the
+            # broader evidence the other levels hold down to a faint background.
+            level = torch.stack(levels).amax(0)
+            cam = level if cam is None else torch.maximum(cam, level)
+
+    cam = (cam.squeeze(1) * 255).byte().cpu().numpy()  # (B, H, W), maps are already scaled to [0, 1]
+    ims = im.detach()[:, :3].float()
+    lo, hi = ims.amin((2, 3), keepdim=True), ims.amax((2, 3), keepdim=True)  # classify inputs are mean-std normalized
+    ims = ((ims - lo) / (hi - lo).clamp(min=1e-7) * 255).byte().permute(0, 2, 3, 1).cpu().numpy()[..., ::-1]  # to BGR
+    save_dir.mkdir(parents=True, exist_ok=True)
+    for c, img, p in zip(cam, ims, paths):
+        f = increment_path(save_dir / f"{Path(p).stem}_cam.jpg")
+        img = np.ascontiguousarray(img if img.shape[2] == 3 else img[..., :1].repeat(3, 2))  # grayscale to BGR
+        heatmap = cv2.addWeighted(cv2.applyColorMap(c, cv2.COLORMAP_JET), 0.5, img, 0.5, 0)
+        cv2.imwrite(str(f), heatmap)
+        LOGGER.info(f"Saving {f}... (LayerCAM)")
+
+    def detach(x):
+        """Detach tensors in nested model outputs from the autograd graph."""
+        if isinstance(x, torch.Tensor):
+            return x.detach()
+        if isinstance(x, dict):
+            return {k: detach(v) for k, v in x.items()}
+        if isinstance(x, (list, tuple)):
+            return type(x)(detach(v) for v in x)
+        return x
+
+    return detach(preds)

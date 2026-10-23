@@ -20,31 +20,25 @@ keywords: Ultralytics Platform, Quickstart, YOLO models, dataset upload, model t
   <strong>Watch:</strong> Get Started with Ultralytics Platform - QuickStart
 </p>
 
-The following interactive diagram outlines the four primary stages of the Ultralytics Platform workflow. Click any stage or sub-step to access detailed instructions for that section.
+The following interactive diagram outlines the four primary stages of the Ultralytics Platform workflow. Click any stage to jump to its instructions.
 
 ```mermaid
-graph LR
-    A(Sign Up):::start --> B(Prepare Data):::proc --> C(Train):::proc --> D(Deploy):::out
-    A -.- A1["<a href='#get-started'>Create account</a><br/><a href='#region-selection'>Select region</a>"]:::proc
-    B -.- B1["<a href='#upload-your-first-dataset'>Upload dataset</a><br/><a href='#create-your-first-project'>Create Project</a>"]:::proc
-    C -.- C1["<a href='#training-configuration'>Configure training</a><br/><a href='#monitor-training'>Monitor progress</a>"]:::proc
-    D -.- D1["<a href='#test-your-model'>Test model</a><br/><a href='#deploy-to-production'>Deploy endpoint</a>"]:::proc
+flowchart TD
+    A([Sign up]) --> B[Prepare data]
+    B --> C[Train]
+    C --> D([Deploy])
 
     click A "#get-started"
     click B "#upload-your-first-dataset"
     click C "#train-your-first-model"
     click D "#deploy-to-production"
-
-    classDef start fill:#4CAF50,color:#fff
-    classDef proc fill:#2196F3,color:#fff
-    classDef out fill:#9C27B0,color:#fff
 ```
 
 ## Get Started
 
 [Ultralytics Platform](https://platform.ultralytics.com) offers a variety of easy signup options. You can register and log in using your Google or GitHub accounts, or with your email address.
 
-![Ultralytics Platform Signup](https://cdn.ul.run/i/a48988bee52c8453f37dc0e750abf717.avif)<!-- screenshot -->
+![Ultralytics Platform Signup](https://cdn.ul.run/i/d1aa583f9f69a3bf49d503774779cb98.avif)<!-- screenshot -->
 
 ### Region Selection
 
@@ -52,7 +46,7 @@ During onboarding, you'll be asked to select your data region. The Platform auto
 region and recommends the closest one. This choice determines where your datasets, models, and managed training data are
 stored. Dedicated endpoint regions are selected separately when you deploy a model.
 
-![Ultralytics Platform Onboarding Region Map With Latency](https://cdn.ul.run/i/6e7f398d48e5d13a6af94dcd5c7ec5f9.avif)<!-- screenshot -->
+![Ultralytics Platform Onboarding Region Map With Latency](https://cdn.ul.run/i/2c511d640b7de911f7a421724af49780.avif)<!-- screenshot -->
 
 {% include "macros/platform-data-regions.md" %}
 
@@ -71,7 +65,7 @@ Every new account receives free credits for cloud GPU training:
 
 !!! tip "Maximize Your Credits"
 
-    Sign up with a work email to receive $25 in credits. If you signed up with a personal email, you can verify a work email later to unlock the additional $20 in credits.
+    Sign up with a work email to receive $25 in credits. If you signed up with a personal email, you can change your account email to a work email later to unlock the additional $20 in credits.
 
 ### Complete Your Profile
 
@@ -81,36 +75,48 @@ The onboarding flow guides you through three steps:
 2. **Data Region** - Select US, EU, or AP with a visual world map showing latency
 3. **Complete** - Review your selections, optionally apply a promo code, and finish signup to claim your welcome credits
 
-![Ultralytics Platform Onboarding Profile With Use Case](https://cdn.ul.run/i/cf184953e574770a539c58e11b374a70.avif)<!-- screenshot -->
+![Ultralytics Platform Onboarding Profile With Use Case](https://cdn.ul.run/i/99ffff96be666b6e19eb4ba525d6b554.avif)<!-- screenshot -->
+
 ??? tip "Update Later"
 
     You can update your profile anytime from [Settings](account/settings.md), including your display name, bio, and social links. Your username cannot be changed after signup. The data region has no self-service change; contact support to request a move.
 
 ## Home Dashboard
 
-After signing in, you will be directed to the Home page of [Ultralytics Platform](https://platform.ultralytics.com), which provides a welcome card with workspace stats, quick access to datasets, projects, and storage, and a recent activity feed.
+After signing in, you will be directed to the Home page of [Ultralytics Platform](https://platform.ultralytics.com), which provides a welcome card with workspace stats, an overview video, quick access to datasets, projects, and storage, and a recent activity feed.
 
-![Ultralytics Platform Home Dashboard Welcome Card](https://cdn.ul.run/i/6b781473a19d1def451215f201c7f707.avif)<!-- screenshot -->
+![Ultralytics Platform Home Dashboard Welcome Card](https://cdn.ul.run/i/319bf74b155700ff1366bf7a5dbd727d.avif)<!-- screenshot -->
 
 ### Sidebar Navigation
 
 The sidebar provides access to all Platform sections:
 
-| Section         | Item     | Description                                      |
-| --------------- | -------- | ------------------------------------------------ |
-| **Top**         | Search   | Quick search across all your resources (Cmd+K)   |
-|                 | Home     | Dashboard with quick actions and recent activity |
-|                 | Explore  | Discover public projects and datasets            |
-| **My Projects** | Annotate | Your datasets organized for annotation           |
-|                 | Train    | Your projects containing trained models          |
-|                 | Deploy   | Your active deployments                          |
-| **Bottom**      | Trash    | Deleted items (recoverable for 30 days)          |
-|                 | Settings | Account, billing, and preferences                |
-|                 | Help     | Open help, docs, and feedback tools              |
+| Section     | Item        | Description                                                                           |
+| ----------- | ----------- | ------------------------------------------------------------------------------------- |
+| **Top**     | Search      | Quick search across all your resources (Cmd+K)                                        |
+|             | Home        | Dashboard with quick actions and recent activity                                      |
+|             | Explore     | Discover public projects, datasets, and images                                        |
+|             | Agents      | Build visual [Agents](agents.md) workflows with YOLO, conditions, and VLMs            |
+| **Content** | Annotate    | Your datasets, with a `+` shortcut to create one                                      |
+|             | Train       | Your projects containing trained models                                               |
+|             | Deployments | Your deployments, each opening its deployment page, with a `+` shortcut to create one |
+| **Footer**  | Help        | Guides, community links, and the in-app feedback form                                 |
+|             | Settings    | Account, billing, teams, and preferences                                              |
+|             | Account     | Profile menu with workspace switcher, activity, and **Log out**                       |
+
+Each content section lists your five most recent items with a link to the rest. Hovering an item reveals a delete action
+that moves it to [Trash](account/trash.md), except deployments, which are deleted permanently after confirmation; Trash
+itself is reached from search (`Cmd+K`) or by opening `platform.ultralytics.com/trash`.
+
+!!! note "Browsing Signed Out"
+
+    Without an account the same sidebar shows public **Datasets** and **Models** from `@ultralytics` instead of your
+    own content, and the footer shows a sign-up card in place of the account menu.
 
 ### Welcome Card
 
-The welcome card shows your profile, plan badge, and workspace statistics at a glance:
+The welcome card shows your profile, plan badge (which links to plan comparison), and workspace statistics at a glance.
+Each stat links to the matching workspace view:
 
 | Stat            | Description                      |
 | --------------- | -------------------------------- |
@@ -130,7 +136,8 @@ Below the welcome card, the dashboard shows three cards:
 - **Projects**: Create a new project or drop `.pt` model files to upload. Shows your recent projects.
 - **Storage**: Overview of your storage usage (datasets, models, exports) with plan limits.
 
-A **Recent Activity** table at the bottom shows your latest datasets, models, and training runs.
+A **Recent Activity** table at the bottom shows your latest datasets, projects, and deployments with their status and
+last update time.
 
 ### Global Search
 
@@ -138,17 +145,17 @@ Press `Cmd+K` (Mac) or `Ctrl+K` (Windows/Linux) to open the search bar. Search a
 
 ### AI Chat Assistant
 
-A floating chat widget is available on every page. Click it to ask questions about YOLO training, annotation, deployment, or any Platform feature. The assistant provides context-aware help based on the current page.
+Click **Ask AI** to work with an AI agent that automates tasks across Ultralytics Platform. It works directly with your datasets and models to annotate images, run training experiments, compare results, and export or deploy models. See [AutoTrain with Ask AI](train/autotrain.md) for example prompts and setup for your own coding agent.
 
 ### Onboarding Tours
 
 The Platform includes guided tours that introduce key features as you explore different sections:
 
-| Tour             | Trigger                              | What It Covers                                                           |
-| ---------------- | ------------------------------------ | ------------------------------------------------------------------------ |
-| **Nav Tour**     | First visit to Home after onboarding | Home, Explore, Annotate, Train, Deploy, Settings, Account                |
-| **Project Tour** | First visit to a project page        | Models sidebar, Training Charts, New Model button                        |
-| **Dataset Tour** | First visit to a dataset page        | Images gallery, Split tabs, Classes, Charts, New Model, Upload, Download |
+| Tour             | Trigger                              | What It Covers                                                                          |
+| ---------------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
+| **Nav Tour**     | First visit to Home after onboarding | Home, Explore, Annotate, Train, Deploy, Settings, Your Account                          |
+| **Project Tour** | First visit to a project page        | Models, Training Charts, Train a Model                                                  |
+| **Dataset Tour** | First visit to a dataset page        | Images, Dataset Splits, Classes, Charts, Train a Model, Upload Images, Download Dataset |
 
 !!! tip "Enterprise Users"
 
@@ -158,15 +165,27 @@ The Platform includes guided tours that introduce key features as you explore di
 
 To replay any tour:
 
-- **Redo Tour button** — Click your profile avatar (bottom-left of the sidebar) to open the user menu, then select **Redo Tour**. This resets all tours so they replay on your next visit to each section.
-- **URL parameter** — Navigate to `platform.ultralytics.com/home?tour=nav` to restart the Nav Tour directly.
+- **Redo Tour button** — Click your profile avatar (bottom-left of the sidebar) to open the account menu, then select **Redo Tour**. This resets all tours so they replay on your next visit to each section.
+- **URL parameter** — Append `?tour=` with the tour ID to restart one directly: `?tour=nav` on the Home page,
+  `?tour=project` on a project page, or `?tour=dataset` on a dataset page.
 
 ## Upload Your First Dataset
 
-Navigate to `Annotate` in the sidebar and click `New Dataset` to add your training data. You can also drag and drop files directly onto the Datasets card on the Home dashboard.
+Open `Annotate` in the sidebar and click the `+` to create a new dataset. You can also drag and drop files directly onto the Datasets card on the Home dashboard.
 
-![Ultralytics Platform Quickstart Upload Dialog](https://cdn.ul.run/i/ae0cb43abddd1e486f3cbaca7523e48b.avif)<!-- screenshot -->
-Ultralytics Platform supports multiple upload formats (full details in [Datasets](data/datasets.md)):
+![Ultralytics Platform Quickstart Upload Dialog](https://cdn.ul.run/i/0a41e4a1487a50f74266b9164c7fd64f.avif)<!-- screenshot -->
+
+The **New Dataset** dialog offers four sources. This quickstart uses **Upload**; the others are covered in
+[Datasets](data/datasets.md) and [Integrations](integrations/index.md):
+
+| Source         | Availability  | Description                                                                        |
+| -------------- | ------------- | ---------------------------------------------------------------------------------- |
+| **Upload**     | All plans     | Drop images, videos, archives, or NDJSON from your machine                         |
+| **URL**        | All plans     | Import from a direct HTTP or HTTPS link to a ZIP, TAR, TAR.GZ, TGZ, or NDJSON file |
+| **Cloud**      | Pro and above | Connect an [S3, GCS, or Azure bucket](integrations/index.md)                       |
+| **On Premise** | Enterprise    | Index data that stays on your own [connected host](integrations/on-premise.md)     |
+
+Uploads support multiple formats (full details in [Datasets](data/datasets.md)):
 
 | Format              | Max Size (Free / Pro / Enterprise) | Description                                                                |
 | ------------------- | ---------------------------------- | -------------------------------------------------------------------------- |
@@ -176,25 +195,20 @@ Ultralytics Platform supports multiple upload formats (full details in [Datasets
 | **NDJSON**          | 10 / 20 / 50 GB                    | Ultralytics dataset export format for portable metadata                    |
 
 ```mermaid
-graph LR
-    A[Drop Files]:::start --> B[Auto-Package ZIP]:::proc
-    B --> C[Upload to Storage]:::proc
-    C --> D[Backend Worker]:::proc
-    D --> E[Resize & Thumbnail]:::proc
-    E --> F[Parse Labels]:::proc
-    F --> G[Compute Statistics]:::proc
-    G --> H[Dataset Ready]:::out
-
-    classDef start fill:#4CAF50,color:#fff
-    classDef proc fill:#2196F3,color:#fff
-    classDef out fill:#9C27B0,color:#fff
+flowchart TD
+    A([Drop files]) --> B[Package as ZIP]
+    B --> C[Upload to storage]
+    C --> D[Resize and thumbnail]
+    D --> E[Parse labels]
+    E --> F[Compute statistics]
+    F --> G([Dataset ready])
 ```
 
 After upload, the platform automatically processes your data:
 
-1. Images larger than 4096px are resized (preserving aspect ratio)
+1. Images larger than 4096px are resized (preserving aspect ratio; most TIFF originals are stored as uploaded)
 2. 256px thumbnails are generated for fast browsing
-3. YOLO, COCO, and Ultralytics NDJSON labels are parsed and validated
+3. YOLO, COCO, LabelMe, and Ultralytics or Labelbox NDJSON labels are parsed and validated
 4. Statistics are computed (class distribution, heatmaps, dimensions)
 
 !!! tip "YOLO Dataset Structure"
@@ -222,42 +236,51 @@ Read more about [datasets](data/datasets.md) and supported formats for [detect](
 
 ## Create Your First Project
 
-Projects help you organize related models and experiments. Navigate to Projects and click `New Project`.
+Projects help you organize related models and experiments. Open `Train` in the sidebar and click the `+` to create a project. You can also drop `.pt` weights onto the Projects card on the Home dashboard to create a project and import them in one step.
 
-![Ultralytics Platform Projects Create](https://cdn.ul.run/i/ed4357df1791892bae5488ef2f170181.avif)<!-- screenshot -->
+![Ultralytics Platform Projects Create](https://cdn.ul.run/i/9ae33c3a5c61bf59dc6b6b993abdec12.avif)<!-- screenshot -->
+
 Enter a name and optional description. Projects organize model runs and imported or cloned model weights, with charts for comparing completed training results.
 
 Read more about [projects](train/projects.md).
 
 ## Train Your First Model
 
-From your project, click `New Model` to start cloud training.
+From your project, click `New Model` to open the **Train New Model** dialog. You can also start from a dataset page, in which case the dataset is locked in and you pick the destination project instead.
 
-![Ultralytics Platform Quickstart Training Dialog Cloud Tab](https://cdn.ul.run/i/d258f93a8b00f2938ee1b2b868b2b80b.avif)<!-- screenshot -->
+![Ultralytics Platform Quickstart Training Dialog Cloud Tab](https://cdn.ul.run/i/c93aa9499bf9401557562ffc3cd96be2.avif)<!-- screenshot -->
 
 ### Training Configuration
 
-1. **Select Dataset**: Choose a ready dataset with at least one train image, at least one validation or test image, and at least one labeled image
-2. **Choose Model**: Select a base model - official Ultralytics models or your own trained models
-3. **Set Epochs**: Number of training iterations (default: 100)
-4. **Select GPU**: Choose compute resources based on your budget and model size. The default is **RTX PRO 6000** (96 GB Blackwell, $2.09/hr), which handles every YOLO26 variant. See the full [GPU pricing table](index.md#what-gpu-options-are-available-for-cloud-training) or the [Cloud Training GPU step](train/cloud-training.md#step-5-select-gpu-cloud-tab) for the complete list and tier gating.
+1. **Base Model**: Select official Ultralytics weights or one of your own trained models. The dialog warns if the selected model cannot train the dataset task.
+2. **Dataset**: Choose a ready dataset with at least one train image, at least one validation or test image, and at least one labeled image
+3. **Parameters**: Set **Epochs** (default 100), **Batch Size** (blank means auto), **Image Size** (default 640), and an optional run **Name**. Expand **Advanced Settings** to edit any other Ultralytics training argument in a YAML editor.
+4. **Select GPU**: On the **Cloud Training** tab, choose compute based on your budget and model size. The default is **RTX PRO 6000** (96 GB Blackwell, $2.09/hr), which handles every YOLO26 variant. See the full [GPU pricing table](index.md#what-gpu-options-are-available-for-cloud-training) or the [Cloud Training GPU step](train/cloud-training.md#step-5-select-gpu-cloud-tab) for the complete list and tier gating.
+5. **Start Training**: Review the estimated cost and duration next to your credit balance, then click `Start Training`.
+
+!!! tip "Save Dataset Version"
+
+    Tick **Save Dataset Version** before starting to snapshot a Platform-hosted dataset and link it to the run, so the
+    exact training data can be reproduced later. See [Datasets](data/datasets.md).
 
 !!! warning "Credit Balance Required"
 
-    Cloud training requires a positive credit balance sufficient to cover the estimated job cost. Check your balance in [`Settings > Billing`](account/billing.md). New accounts receive free credits ($5 for personal email, $25 for work email).
+    Cloud training requires a positive credit balance sufficient to cover the estimated job cost. Top up directly from the training dialog, or check your balance in [`Settings > Billing`](account/billing.md). New accounts receive free credits ($5 for personal email, $25 for work email).
 
 ### Monitor Training
 
-Once training starts, you can monitor progress in real-time through three subtabs:
+Once training starts, open the model's `Train` tab to monitor progress in real time:
 
-| Subtab      | Content                                                 |
-| ----------- | ------------------------------------------------------- |
-| **Charts**  | Training/validation loss curves, mAP, precision, recall |
-| **Console** | Live training log output                                |
-| **System**  | GPU utilization, memory usage, hardware metrics         |
+| Subtab         | Content                                                 |
+| -------------- | ------------------------------------------------------- |
+| **Metrics**    | Training/validation loss curves, mAP, precision, recall |
+| **Validation** | Recorded validation results, when available             |
+| **Console**    | Live training log output                                |
+| **System**     | GPU utilization, memory usage, hardware metrics         |
 
-![Ultralytics Platform Training Charts Loss And Metrics](https://cdn.ul.run/i/6da2556476cf397f3ad98565de550a7c.avif)<!-- screenshot -->
-Metrics are streamed in real-time via SSE (Server-Sent Events). After training completes, validation plots are generated including confusion matrix, PR curves, and F1 curves.
+![Ultralytics Platform Training Charts Loss And Metrics](https://cdn.ul.run/i/13e91f2728627c825f8efcd8fe7916b4.avif)<!-- screenshot -->
+
+Metrics are streamed in real-time via SSE (Server-Sent Events). The **Validation** subtab appears when validation results are available, including the confusion matrix, PR curves, and F1 curves produced by the run.
 
 !!! tip "Cancel Training"
 
@@ -270,10 +293,11 @@ Read more about [cloud training](train/cloud-training.md).
 After training completes, test your model directly in the browser:
 
 1. Navigate to your model's `Predict` tab
-2. Upload an image, drag and drop, or use example images (auto-inference on drop)
-3. View task-appropriate prediction overlays and the raw JSON response
+2. Upload an image, drag and drop, capture one from your webcam, or click an example image (auto-inference on drop)
+3. View task-appropriate prediction overlays, per-stage timings (preprocess, inference, postprocess, network), and the raw JSON response
 
-![Ultralytics Platform Predict Tab With Bounding Boxes](https://cdn.ul.run/i/f91ddda982943417224caabce9151d5a.avif)<!-- screenshot -->
+![Ultralytics Platform Predict Tab With Bounding Boxes](https://cdn.ul.run/i/7f20a14a7e6f05a1c43c42229d0e3745.avif)<!-- screenshot -->
+
 Adjust inference parameters:
 
 | Parameter      | Default | Description                       |
@@ -282,7 +306,7 @@ Adjust inference parameters:
 | **IoU**        | 0.7     | Control overlap for NMS           |
 | **Image Size** | 640     | Resize input for inference        |
 
-The `Predict` tab also shows example deployment code. Deploy the model first, then replace the placeholder URL and key with the values from your endpoint:
+Under **API Docs**, the `Predict` tab shows example code in Python, JavaScript, and cURL, pre-filled with the parameters you selected above. Deploy the model first, then replace the placeholder URL and key with the values from your endpoint:
 
 === "Python"
 
@@ -290,10 +314,16 @@ The `Predict` tab also shows example deployment code. Deploy the model first, th
     import requests
 
     url = "https://your-deployment-url.run.app/predict"
-    headers = {"Authorization": "Bearer YOUR_API_KEY"}
+    api_key = "YOUR_API_KEY"
+    args = {"conf": 0.25, "iou": 0.7, "imgsz": 640}
 
     with open("image.jpg", "rb") as f:
-        response = requests.post(url, headers=headers, files={"file": f})
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            data=args,
+            files={"file": f},
+        )
 
     print(response.json())
     ```
@@ -303,12 +333,15 @@ The `Predict` tab also shows example deployment code. Deploy the model first, th
     ```bash
     curl -X POST "https://your-deployment-url.run.app/predict" \
       -H "Authorization: Bearer YOUR_API_KEY" \
-      -F "file=@image.jpg"
+      -F "file=@image.jpg" \
+      -F "conf=0.25" \
+      -F "iou=0.7" \
+      -F "imgsz=640"
     ```
 
 !!! tip "Auto-Inference"
 
-    The Predict tab runs inference automatically when you drop an image — no need to click a button. Example images (bus.jpg, zidane.jpg) are preloaded for instant testing.
+    The Predict tab runs inference automatically when you drop an image — no need to click a button — and re-runs it whenever you change confidence, IoU, or image size. Example images (bus.jpg, zidane.jpg) are preloaded for instant testing.
 
 Read more about [inference](deploy/inference.md).
 
@@ -317,34 +350,27 @@ Read more about [inference](deploy/inference.md).
 Deploy your model to a dedicated endpoint for production use:
 
 1. Navigate to your model's `Deploy` tab
-2. Select a region from the interactive world map (42 available regions)
-3. The map shows real-time latency measurements with colors on a green-to-red gradient (lower latency is greener, higher latency is redder)
-4. Click `Deploy` to create your endpoint
+2. The Platform measures latency to all 42 regions and plots them on a world map, colored on a green-to-red gradient (lower latency is greener, higher latency is redder)
+3. In the **Region Latency** table below the map — sorted by latency from your location — find the region you want. Use `Rescan` to re-measure at any time.
+4. Click `Deploy` on that row to create your endpoint
 
-![Ultralytics Platform Deploy Tab Region Map With Latency](https://cdn.ul.run/i/dd8705123618b4994d035b50663a14cf.avif)<!-- screenshot -->
+![Ultralytics Platform Deploy Tab Region Map With Latency](https://cdn.ul.run/i/10b367836b087d68241e529da20a1257.avif)<!-- screenshot -->
 
 ```mermaid
-graph LR
-    A[Select Region]:::start --> B[Deploy]:::proc
-    B --> C[Provisioning]:::proc
-    C --> D[Running]:::out
-    D --> E{Lifecycle}:::decide
-    E --> F[Stop]:::error
-    E --> G[Delete]:::error
-    F --> H[Resume]:::proc
-    H --> D
-
-    classDef start fill:#4CAF50,color:#fff
-    classDef proc fill:#2196F3,color:#fff
-    classDef decide fill:#FF9800,color:#fff
-    classDef out fill:#9C27B0,color:#fff
-    classDef error fill:#F44336,color:#fff
+stateDiagram-v2
+    [*] --> Provisioning: deploy
+    Provisioning --> Ready
+    Ready --> Stopped: stop
+    Stopped --> Provisioning: start
+    Ready --> [*]: delete
+    Stopped --> [*]: delete
 ```
 
 Once provisioning completes, your endpoint provides:
 
 - **Unique URL**: HTTPS endpoint for API calls
-- **Scale-to-zero behavior**: Idle endpoints scale to zero (deployments currently run a single active instance)
+- **Scale-to-zero behavior**: Idle default-size endpoints scale to zero; custom sizes stay warm and use hourly uptime
+  billing (deployments currently run a single active instance)
 - **Monitoring**: Request metrics and logs
 
 !!! info "Deployment Lifecycle"
@@ -352,7 +378,7 @@ Once provisioning completes, your endpoint provides:
     Endpoints can be **started**, **stopped**, and **deleted**. Stopped endpoints retain their configuration and can be
     restarted with one click.
 
-After deployment, you can manage all your endpoints from the `Deploy` section in the sidebar, which shows a global map with active deployments, overview metrics, and a list of all endpoints.
+After deployment, you can manage all your endpoints from the **Deployments** tab on your profile, reached from the `Deployments` section in the sidebar. The tab shows a global map with your active deployments, 24-hour metrics (active deployments, total requests, error rate, and P95 latency), and a list of every endpoint.
 
 Read more about [endpoints](deploy/endpoints.md).
 
@@ -360,8 +386,12 @@ Read more about [endpoints](deploy/endpoints.md).
 
 If you prefer to train on your own hardware, you can use your API key to train anywhere and stream metrics to Ultralytics Platform.
 
+The fastest route is the **Local Training** tab in the training dialog: it builds the full command for your selected model, dataset, and parameters, and fills in an API key (creating one if you don't have one yet). Copy it and run it in your terminal.
+
+To assemble the command yourself:
+
 1. Generate an API key in [`Settings > API Keys`](account/api-keys.md)
-2. Set the environment variable and train with a `project/name` format:
+2. Set the environment variable and train with a `username/project` value for `project`:
 
 ```bash
 export ULTRALYTICS_API_KEY="YOUR_API_KEY"
@@ -369,15 +399,15 @@ export ULTRALYTICS_API_KEY="YOUR_API_KEY"
 yolo train model=yolo26n.pt data=coco.yaml epochs=100 project=username/my-project name=exp1
 ```
 
-!!! note "API Key Format"
+!!! note "Requirements"
 
-    API keys start with `ul_` followed by 40 hex characters (43 characters total). Keys are full-access tokens scoped to your workspace.
+    Local training with metric streaming requires **Python>=3.11** and **ultralytics>=8.4.120**. API keys start with `ul_` followed by 40 hex characters (43 characters total) and are full-access tokens scoped to your workspace.
 
 Read more about [API keys](account/api-keys.md), [dataset URIs](data/datasets.md#dataset-uri), and [remote training](train/cloud-training.md#remote-training).
 
 ## Feedback & Help
 
-The **Help** page in the sidebar footer includes an in-app feedback form. You can rate your experience, choose a feedback type (bug, feature request, or general), and attach screenshots.
+The **Help** page in the sidebar footer collects documentation links, video walkthroughs, and community resources, and includes an in-app feedback form. You can rate your experience from 1 to 5 stars, choose a feedback type (**Bug**, **Feature**, or **General**), and attach a screenshot.
 
 If you need more help:
 
@@ -385,4 +415,26 @@ If you need more help:
 - **Documentation**: Browse these docs for detailed guides on [datasets](data/datasets.md), [annotation](data/annotation.md), [training](train/cloud-training.md), [deployment](deploy/endpoints.md), and [billing](account/billing.md)
 - **Discord**: Join our [Discord community](https://discord.com/invite/ultralytics) for discussions
 - **GitHub**: Report issues on [GitHub](https://github.com/ultralytics/ultralytics/issues)
-- **REST API**: See the [API reference](api/index.md) or try the [interactive API docs](https://platform.ultralytics.com/api/docs) for programmatic access to all Platform features
+- **REST API and Python SDK**: See the [API reference](api/index.md), install the [`ultralytics-platform`](https://pypi.org/project/ultralytics-platform/) client, or try the [interactive API docs](https://platform.ultralytics.com/api/docs) for programmatic access to all Platform features
+
+## FAQ
+
+### Do I need a credit card to get started?
+
+No. Every new account receives free training credits at signup, $25 with a work email or $5 with a personal email, and you can upload datasets, annotate, and test models without adding a payment method. See [Billing](account/billing.md) for plans and how to add credits later.
+
+### Can I change my data region or username later?
+
+Your username is permanent, and the data region is set during onboarding and cannot be changed yourself. Contact support if you need to move regions. Display name, bio, and social links can be updated anytime in [Settings](account/settings.md).
+
+### What dataset formats can I upload?
+
+Upload a ZIP, TAR, or TAR.GZ archive in YOLO format, COCO JSON, [LabelMe](integrations/labelme.md) JSON, or [Ultralytics](../datasets/detect/index.md#ultralytics-ndjson-format) or [Labelbox](integrations/labelbox.md) NDJSON, or a plain folder of images to annotate in Platform. Platform detects the task and splits from the archive layout. See [Datasets](data/datasets.md#supported-formats) for the full list.
+
+### Can I train on my own hardware instead of cloud GPUs?
+
+Yes. Use the **Local Training** tab in the training dialog to copy a ready-made command, or set `ULTRALYTICS_API_KEY` and pass `project=username/my-project` to `yolo train`. Metrics stream to Platform in real time and the final weights upload when training finishes. See [Remote Training](train/cloud-training.md#remote-training).
+
+### How do I use a trained model outside Platform?
+
+Download the PyTorch weights (`{model}.pt`, the best checkpoint) from the model page, [export](train/models.md#export-model) to formats such as ONNX, TensorRT, or CoreML, or call the model through a [dedicated endpoint](deploy/endpoints.md). You can also load it directly with `YOLO("ul://username/project/model")` in the `ultralytics` package.
